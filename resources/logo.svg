@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Third-party QQ Music client icon</title>
+  <desc>A record player seen from above, in the skeuomorphic style: a vinyl record with a green label on a metal platter, a tonearm, on a light aluminium base. Independent design, not an official QQ Music logo.</desc>
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbfaf7"/>
+      <stop offset="1" stop-color="#dcd8cf"/>
+    </linearGradient>
+    <radialGradient id="platterShadow" cx="482" cy="548" r="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0.86" stop-color="#000000" stop-opacity=".32"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="platter" x1="0.15" y1="0.1" x2="0.85" y2="0.9">
+      <stop offset="0" stop-color="#f4f4f4"/>
+      <stop offset="0.5" stop-color="#a3a3a3"/>
+      <stop offset="1" stop-color="#d6d6d6"/>
+    </linearGradient>
+    <radialGradient id="vinyl" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#2e2e2e"/>
+      <stop offset="0.9" stop-color="#121212"/>
+      <stop offset="1" stop-color="#1e1e1e"/>
+    </radialGradient>
+    <radialGradient id="sheen" cx="470" cy="520" r="356" gradientUnits="userSpaceOnUse">
+      <stop offset="0.3" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.7" stop-color="#ffffff" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".5"/>
+    </radialGradient>
+    <radialGradient id="label" cx="0.4" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#47d491"/>
+      <stop offset="1" stop-color="#1f9a5c"/>
+    </radialGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.55" stop-color="#b9b9b9"/>
+      <stop offset="1" stop-color="#7d7d7d"/>
+    </linearGradient>
+    <radialGradient id="knob" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.6" stop-color="#bdbdbd"/>
+      <stop offset="1" stop-color="#858585"/>
+    </radialGradient>
+    <linearGradient id="weight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a5a5a"/>
+      <stop offset="0.35" stop-color="#d8d8d8"/>
+      <stop offset="0.6" stop-color="#9a9a9a"/>
+      <stop offset="1" stop-color="#3e3e3e"/>
+    </linearGradient>
+    <path id="w30" d="M 470 520 L 778.3 342.0 A 356 356 0 0 1 778.3 698.0 Z"/>
+    <path id="w22" d="M 470 520 L 800.1 386.6 A 356 356 0 0 1 800.1 653.4 Z"/>
+    <path id="w15" d="M 470 520 L 813.9 427.9 A 356 356 0 0 1 813.9 612.1 Z"/>
+    <path id="w9" d="M 470 520 L 821.6 464.3 A 356 356 0 0 1 821.6 575.7 Z"/>
+    <path id="w4" d="M 470 520 L 825.1 495.2 A 356 356 0 0 1 825.1 544.8 Z"/>
+  </defs>
+
+  <!-- Base: a light aluminium plate with a soft drop shadow -->
+  <rect x="40" y="66" width="944" height="936" rx="206" fill="#000000" fill-opacity=".05"/>
+  <rect x="44" y="58" width="936" height="924" rx="200" fill="#000000" fill-opacity=".08"/>
+  <rect x="48" y="40" width="928" height="928" rx="196" fill="url(#base)"/>
+  <rect x="48" y="40" width="928" height="928" rx="196" fill="none" stroke="#000000" stroke-opacity=".18" stroke-width="2"/>
+  <rect x="52" y="44" width="920" height="920" rx="192" fill="none" stroke="#ffffff" stroke-width="4"/>
+
+  <!-- Platter -->
+  <circle cx="482" cy="548" r="400" fill="url(#platterShadow)"/>
+  <circle cx="470" cy="520" r="374" fill="url(#platter)"/>
+  <circle cx="470" cy="520" r="364" fill="#1a1a1a"/>
+
+  <!-- Record -->
+  <circle cx="470" cy="520" r="358" fill="url(#vinyl)"/>
+  <g fill="none" stroke-width="2">
+    <circle cx="470" cy="520" r="340" stroke="#ffffff" stroke-opacity=".07"/>
+    <circle cx="470" cy="520" r="318" stroke="#ffffff" stroke-opacity=".05"/>
+    <circle cx="470" cy="520" r="296" stroke="#ffffff" stroke-opacity=".07"/>
+    <circle cx="470" cy="520" r="262" stroke="#000000" stroke-opacity=".7" stroke-width="5"/>
+    <circle cx="470" cy="520" r="258" stroke="#ffffff" stroke-opacity=".08"/>
+    <circle cx="470" cy="520" r="232" stroke="#ffffff" stroke-opacity=".05"/>
+    <circle cx="470" cy="520" r="206" stroke="#000000" stroke-opacity=".7" stroke-width="5"/>
+    <circle cx="470" cy="520" r="202" stroke="#ffffff" stroke-opacity=".08"/>
+    <circle cx="470" cy="520" r="176" stroke="#ffffff" stroke-opacity=".05"/>
+    <circle cx="470" cy="520" r="152" stroke="#ffffff" stroke-opacity=".07"/>
+  </g>
+  <!-- Light reflected off the grooves, from the upper left and lower right -->
+  <g fill="url(#sheen)" fill-opacity=".045">
+    <g transform="rotate(225 470 520)">
+      <use href="#w30"/><use href="#w22"/><use href="#w15"/><use href="#w9"/><use href="#w4"/>
+    </g>
+    <g transform="rotate(45 470 520)">
+      <use href="#w30"/><use href="#w22"/><use href="#w15"/><use href="#w9"/><use href="#w4"/>
+    </g>
+  </g>
+  <circle cx="470" cy="520" r="357" fill="none" stroke="#ffffff" stroke-opacity=".12" stroke-width="2"/>
+
+  <!-- Label and spindle -->
+  <circle cx="470" cy="520" r="132" fill="#000000" fill-opacity=".5"/>
+  <circle cx="470" cy="520" r="128" fill="url(#label)"/>
+  <circle cx="470" cy="520" r="114" fill="none" stroke="#ffffff" stroke-opacity=".35" stroke-width="3"/>
+  <circle cx="470" cy="520" r="54" fill="none" stroke="#0b5a33" stroke-opacity=".3" stroke-width="3"/>
+  <circle cx="474" cy="525" r="18" fill="#000000" fill-opacity=".3"/>
+  <circle cx="470" cy="520" r="16" fill="url(#metal)"/>
+
+  <!-- Tonearm shadow -->
+  <g transform="translate(16 22)" opacity=".25" fill="#000000" stroke="#000000" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="816" cy="250" r="78" stroke="none"/>
+    <path d="M 854 174 L 816 250 L 660 570" fill="none" stroke-width="30"/>
+    <rect x="-24" y="-30" width="116" height="60" rx="12" transform="translate(660 570) rotate(112)" stroke="none"/>
+  </g>
+
+  <!-- Tonearm -->
+  <circle cx="816" cy="250" r="78" fill="url(#knob)"/>
+  <circle cx="816" cy="250" r="78" fill="none" stroke="#000000" stroke-opacity=".2" stroke-width="2"/>
+  <circle cx="816" cy="250" r="50" fill="#2b2b2b"/>
+  <path d="M 854 174 L 816 250 L 660 570" fill="none" stroke="#6a6a6a" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 854 174 L 816 250 L 660 570" fill="none" stroke="#d4d4d4" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 850 172 L 812 248 L 656 568" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="-40" y="-36" width="80" height="72" rx="14" transform="translate(860 162) rotate(116.6)" fill="url(#weight)"/>
+  <circle cx="816" cy="250" r="36" fill="url(#knob)"/>
+  <circle cx="816" cy="250" r="12" fill="#3a3a3a"/>
+  <!-- Headshell -->
+  <g transform="translate(660 570) rotate(112)">
+    <rect x="-24" y="-30" width="116" height="60" rx="12" fill="#cfcfcf" stroke="#6a6a6a" stroke-width="3"/>
+    <rect x="-18" y="-24" width="104" height="14" rx="6" fill="#ffffff" fill-opacity=".7"/>
+    <rect x="34" y="-20" width="50" height="40" rx="6" fill="#1b1b1b"/>
+  </g>
+</svg>

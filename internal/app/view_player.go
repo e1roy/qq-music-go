@@ -1,0 +1,488 @@
+package app
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+
+	"qqmusic/internal/qqmusic"
+)
+
+// iconButton is shadcn's ghost icon button: a bare icon that gets a face
+// and brightens under the pointer.
+func iconButton(c *ui.Context, ic *ui.SVG, size float32, col ui.Color, tip string) ui.Element {
+	b := ui.Box(c).Padding(7).Radius(radiusMd).Cursor(ui.CursorPointer).Center()
+	if tip != "" {
+		b.Tooltip(tip)
+	}
+	if b.Hovered() {
+		b.Background(colGhost)
+		if col == colMuted {
+			col = colText
+		}
+	}
+	if b.Pressed() {
+		b.Translate(0, 1)
+	}
+	b.Children(func() { ui.Icon(c, ic).FontSize(size).TextColor(col) })
+	return b
+}
+
+func (a *app) playerBar(c *ui.Context) {
+	s, ok := a.nowPlaying()
+	ui.Row(c).Height(barHeight).Padding(0, 8).AlignItems(ui.Center).Gap(16).Children(func() {
+		// The song.
+		ui.Row(c).WidthPercent(28).MinWidth(200).Gap(12).AlignItems(ui.Center).Children(func() {
+			if !ok {
+				return
+			}
+			cov := ui.Box(c).Cursor(ui.CursorPointer).Tooltip("歌词").Children(func() {
+				a.cover(c, s.Cover(300), 48, radiusMd)
+			})
+			if cov.Clicked() {
+				a.toggleLyrics()
+			}
+			ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+				ui.Text(c, s.DisplayName()).FontSize(14).FontWeight(500).SingleLine().Cursor(ui.CursorPointer).OnClick(a.toggleLyrics)
+				a.singerLinks(c, s.Singers, 12)
+			})
+			liked := a.liked[int64(s.ID)]
+			ic, col := icHeart, colMuted
+			if liked {
+				ic, col = icHeartOn, colAccent
+			}
+			if iconButton(c, ic, 16, col, "喜欢").Clicked() {
+				a.toggleLike(s)
+			}
+		})
+		// The controls.
+		ui.Column(c).Grow(1).MaxWidth(680).Gap(4).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+				a.modeButton(c)
+				if iconButton(c, icPrev, 22, colText, "上一首").Clicked() {
+					a.prev()
+				}
+				// shadcn's primary icon button, made round.
+				play := ui.Box(c).Size(36, 36).Radius(18).Background(colAccent).Center().Cursor(ui.CursorPointer).Shadow(0, 1, 3, 0, colShadow)
+				if play.Hovered() {
+					play.Background(colAccentH)
+				}
+				if play.Pressed() {
+					play.Scale(0.96, 0.96)
+				}
+				play.Children(func() {
+					if a.player.Loading() {
+						ui.Spinner(c).Size(16, 16).TextColor(colAccentFg)
+						return
+					}
+					ic := icPlay
+					if a.player.Playing() {
+						ic = icPause
+					}
+					ui.Icon(c, ic).FontSize(16).TextColor(colAccentFg)
+				})
+				if play.Clicked() {
+					a.togglePlay()
+				}
+				if iconButton(c, icNext, 22, colText, "下一首").Clicked() {
+					a.next(false)
+				}
+				col := colMuted
+				if a.showLyrics {
+					col = colAccent
+				}
+				if iconButton(c, icLyric, 16, col, "歌词").Clicked() {
+					a.toggleLyrics()
+				}
+			})
+			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+				pos, dur := a.player.Position(), a.player.Duration()
+				if dur == 0 && ok {
+					dur = time.Duration(s.Interval) * time.Second
+				}
+				if a.seeking {
+					pos = time.Duration(a.seekValue * float64(time.Second))
+				}
+				timeText(c, formatTime(pos))
+				a.progress(c, pos, dur)
+				timeText(c, formatTime(dur))
+			})
+		})
+		// The rest.
+		ui.Row(c).WidthPercent(28).MinWidth(200).Gap(2).Justify(ui.End).AlignItems(ui.Center).Children(func() {
+			if a.playErr != "" {
+				ui.Icon(c, icAlert).FontSize(16).TextColor(colDanger).Tooltip(a.playErr).Padding(0, 6)
+			}
+			q := a.set.Quality.String()
+			// As the next song loads, it shows what the last one got, not
+			// the quality asked for, for it not to change back and forth.
+			if a.qualityKnown && a.gotQuality < a.askedQuality {
+				q = a.gotQuality.String() + "（无高品质）"
+			}
+			qb := badge(c, q, colAccent).Cursor(ui.CursorPointer).Tooltip("音质").MarginEnd(6)
+			if qb.Hovered() {
+				qb.Background(colAccent.Alpha(0.12))
+			}
+			qb.Menu(func(m *ui.Menu) {
+				for _, qq := range []qqmusic.Quality{qqmusic.Standard, qqmusic.High} {
+					if m.Item(qq.String()).Checked(a.set.Quality == qq).Chosen() {
+						a.set.Quality = qq
+						a.saveSettings()
+						if _, ok := a.nowPlaying(); ok {
+							a.toast("下一首起使用 " + qq.String())
+						}
+					}
+				}
+			})
+			col := colMuted
+			if a.showQueue {
+				col = colAccent
+			}
+			qbtn := iconButton(c, icQueue, 16, col, "播放队列")
+			// Pressing the toggle is not pressing outside the queue: the
+			// panel must stay open for the click to close it.
+			a.queueBtnHover = qbtn.Hovered()
+			if qbtn.Clicked() {
+				a.toggleQueue()
+			}
+			vic := icVolume
+			if a.muted || a.volume == 0 {
+				vic = icVolumeX
+			}
+			if iconButton(c, vic, 16, colMuted, "静音").Clicked() {
+				a.toggleMute()
+			}
+			v := a.volume
+			if a.muted {
+				v = 0
+			}
+			sl := a.thinSlider(c, &v, 0, 1, 0)
+			sl.Width(64)
+			if sl.Changed() {
+				a.setVolume(v)
+			}
+			if a.volumeWasPressed && !sl.Pressed() {
+				a.saveSettings()
+			}
+			a.volumeWasPressed = sl.Pressed()
+		})
+	})
+}
+
+var modeIcons = [...]*ui.SVG{icRepeat, icRepeat1, icShuffle, icOrder}
+
+// modeButton shows the play mode, and above it, as it is clicked, a menu
+// of the modes, each with its icon, the one in use checked.
+func (a *app) modeButton(c *ui.Context) {
+	col := colMuted
+	if a.set.Mode != modeOrder {
+		col = colAccent
+	}
+	tip := a.set.Mode.String()
+	if a.modeOpen {
+		tip = ""
+	}
+	b := iconButton(c, modeIcons[a.set.Mode], 16, col, tip).Label("播放模式")
+	if a.modeOpen {
+		b.Background(colGhost)
+	}
+	if b.Clicked() {
+		a.modeOpen = !a.modeOpen
+	}
+	ui.PopoverBase(c, b, &a.modeOpen, func(panel ui.Element) {
+		panel.AttachTo(b, ui.AnchorTop, ui.AnchorBottom).Margin(0, 0, 8, 0).
+			Padding(4).Gap(2).Width(136).Radius(radiusLg).Background(colCard).Border(1, colLine).
+			Shadow(0, 8, 24, 0, colShadow)
+		for _, m := range []playMode{modeOrder, modeLoop, modeOne, modeShuffle} {
+			on := m == a.set.Mode
+			row := ui.Row(c.Key(int(m))).Padding(7, 8).Gap(8).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+			if row.Hovered() {
+				row.Background(colHover)
+			}
+			fg := colText
+			if on {
+				fg = colAccent
+			}
+			row.Children(func() {
+				ui.Icon(c, modeIcons[m]).FontSize(16).TextColor(fg)
+				ui.Text(c, m.String()).FontSize(13).TextColor(fg).Grow(1)
+				if on {
+					ui.Icon(c, icCheck).FontSize(14).TextColor(colAccent)
+				}
+			})
+			if row.Clicked() {
+				a.modeOpen = false
+				if !on {
+					a.set.Mode = m
+					a.saveSettings()
+				}
+			}
+		}
+	})
+}
+
+func timeText(c *ui.Context, s string) {
+	ui.Text(c, s).FontSize(12).TextColor(colMuted).FontFeatures("tnum").Width(40).TextAlign(ui.Center)
+}
+
+// thinSlider is shadcn's Slider made thin: a muted track, the range in
+// the primary color, and under the pointer its thumb, white in a ring of
+// the primary color. buffered shows the downloaded part.
+func (a *app) thinSlider(c *ui.Context, v *float64, lo, hi, buffered float64) ui.Element {
+	s := ui.SliderBase(c, v, lo, hi).Height(16).PaddingX(7).Cursor(ui.CursorPointer)
+	hot := s.Hovered() || s.Pressed()
+	at := float32(0)
+	if hi > lo {
+		at = float32((*v - lo) / (hi - lo))
+	}
+	at = min(max(at, 0), 1)
+	s.Draw(func(p *ui.Painter, r ui.Rect) {
+		x0, w := r.X+7, r.W-14
+		y := r.Y + r.H/2 - 2
+		p.Fill(ui.Rect{X: x0, Y: y, W: w, H: 4}, ui.RGBA(255, 255, 255, 0.12), 2)
+		if buffered > 0 {
+			p.Fill(ui.Rect{X: x0, Y: y, W: w * float32(min(buffered, 1)), H: 4}, ui.RGBA(255, 255, 255, 0.2), 2)
+		}
+		p.Fill(ui.Rect{X: x0, Y: y, W: w * at, H: 4}, colAccent, 2)
+		if hot {
+			knob := ui.Rect{X: x0 + w*at - 7, Y: r.Y + r.H/2 - 7, W: 14, H: 14}
+			p.Shadow(knob, 7, 0, 1, 3, 0, colShadow)
+			p.Fill(knob, colText, 7)
+			p.Stroke(knob, colAccent, 7, 1.5)
+		}
+	})
+	return s
+}
+
+func (a *app) progress(c *ui.Context, pos, dur time.Duration) {
+	if !a.seeking {
+		a.seekValue = pos.Seconds()
+	}
+	hi := max(dur.Seconds(), 1)
+	s := a.thinSlider(c, &a.seekValue, 0, hi, a.player.Buffered())
+	s.Grow(1).Label("播放进度")
+	pressed := s.Pressed()
+	switch {
+	case pressed:
+		a.seeking = true
+	case a.seeking:
+		a.seeking = false
+		a.player.Seek(time.Duration(a.seekValue * float64(time.Second)))
+	case s.Changed():
+		// Arrows, or a click shorter than a frame.
+		a.player.Seek(time.Duration(a.seekValue * float64(time.Second)))
+	}
+}
+
+// nowPlaying is the page of the song playing: its cover and lyrics.
+func (a *app) nowPlayingPage(c *ui.Context) {
+	s, ok := a.nowPlaying()
+	if !ok {
+		ui.Column(c).Fill().Center().Gap(12).Children(func() {
+			ui.Icon(c, icDisc).FontSize(64).TextColor(colDim)
+			ui.Text(c, "还没有在播放的歌曲").TextColor(colMuted)
+		})
+		return
+	}
+	a.lyricsTint.aim(c, a.pageTint(s.Cover(300)))
+	ui.Box(c).Fill().Clip().Draw(a.lyricsTint.fill).Children(func() {
+		// A blurred cover behind it all, over its color.
+		// The cover of the song before stays as the next one downloads.
+		bmp := a.images.get(s.Cover(300), 300)
+		if bmp != nil {
+			a.lyricsBg = bmp
+		} else {
+			bmp = a.lyricsBg
+		}
+		if bmp != nil {
+			ui.Image(c, bmp).Absolute().Top(-80).Left(-80).Right(-80).Bottom(-80).Fit(ui.Cover).Blur(60).Opacity(0.55)
+		}
+		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Gradient(ui.RGBA(0, 0, 0, 0.35), ui.RGBA(0, 0, 0, 0.75), 180)
+		w, _ := c.Size()
+		avail := w - sidebarWidth - 24
+		if a.sidePanel() {
+			avail -= queueWidth
+		}
+		side := min(max(avail*0.34, 0), 340)
+		// Clear of the panel on the right, which covers the lyrics' room.
+		right := float32(48)
+		if a.sidePanel() {
+			right += queueWidth
+		}
+		ui.Row(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Padding(topHeight, right, 32, 48).Gap(48).AlignItems(ui.Center).Children(func() {
+			if side >= 180 {
+				ui.Column(c).Width(side).Gap(16).Children(func() {
+					ui.Box(c).Size(side, side).Radius(radiusXl).Clip().Shadow(0, 16, 48, 0, ui.RGBA(0, 0, 0, 0.5)).Children(func() {
+						a.coverOr(c, s.Cover(500), s.Cover(300), side, radiusXl)
+						ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(radiusXl).Border(1, colLine)
+					})
+					ui.Text(c, s.DisplayName()).FontSize(22).FontWeight(600).LetterSpacing(-0.4).MaxLines(2)
+					a.singerLinks(c, s.Singers, 15)
+					if s.Album.Name != "" {
+						ui.Row(c).MinWidth(0).AlignItems(ui.Center).Children(func() {
+							ui.Text(c, "专辑：").FontSize(13).TextColor(colMuted).NoWrap()
+							a.albumLink(c, s.Album, 13).Shrink(1)
+						})
+					}
+					ui.Row(c).Margin(4, 0, 0, 0).Children(func() { a.commentsTab(c, s) })
+				})
+			}
+			a.lyricsView(c)
+		})
+		// On the left: the window controls are on the right.
+		if iconButton(c, icDown, 18, colMuted, "收起").Absolute().Top(12).Left(12).Clicked() {
+			a.showLyrics = false
+		}
+	})
+}
+
+// lyricPad is the empty rows above and below the lyrics, so that the
+// first and last lines can scroll to the center.
+const lyricPad = 6
+
+func (a *app) lyricsView(c *ui.Context) {
+	lines := a.lyrics
+	if lines == nil {
+		lyricsSkeleton(c)
+		return
+	}
+	cur := a.lyricLine
+	if cur != a.lyricShown && cur >= 0 && time.Since(a.lyricHold) > 4*time.Second {
+		a.lyricList.ScrollTo(cur+lyricPad, ui.Center)
+	}
+	a.lyricShown = cur
+	timed := len(lines) > 0 && lines[0].At >= 0
+	ui.List(c, &a.lyricList, len(lines)+2*lyricPad, func(i int) {
+		i -= lyricPad
+		if i < 0 || i >= len(lines) {
+			ui.Box(c).Height(40)
+			return
+		}
+		l := lines[i]
+		on := i == cur
+		row := ui.Column(c.Key(i)).Padding(10, 16).Gap(4).Radius(radiusLg)
+		hover := timed && row.Hovered()
+		if hover {
+			row.Background(ui.RGBA(255, 255, 255, 0.06)).Cursor(ui.CursorPointer)
+		}
+		row.Children(func() {
+			t := ui.Text(c, l.Text).LineHeight(1.35)
+			switch {
+			case on:
+				t.FontSize(24).FontWeight(700).TextColor(colText)
+			case i < cur:
+				t.FontSize(19).TextColor(ui.RGBA(255, 255, 255, 0.45))
+			default:
+				t.FontSize(19).TextColor(ui.RGBA(255, 255, 255, 0.62))
+			}
+			if l.Trans != "" {
+				tr := ui.Text(c, l.Trans).FontSize(14)
+				if on {
+					tr.TextColor(colText)
+				} else {
+					tr.TextColor(ui.RGBA(255, 255, 255, 0.45))
+				}
+			}
+			if hover {
+				ui.Text(c, formatTime(l.At)).FontSize(11).TextColor(colAccent)
+			}
+		})
+		if timed && row.Clicked() {
+			a.player.Seek(l.At)
+			a.lyricHold = time.Time{}
+		}
+	}).Grow(1).Height(0).FillHeight().HandleInput(func(ev ui.InputEvent) bool {
+		if ev.Kind == ui.InputScroll {
+			a.lyricHold = time.Now()
+		}
+		return false
+	})
+}
+
+func (a *app) queuePanel(c *ui.Context) {
+	// A card on the right of the panel, below the title bar: the window
+	// controls go on over its top, which moves the window.
+	// Out of the layout of its room, which is narrower as it comes and goes.
+	col := ui.Column(c.Key("queue")).Absolute().Top(0).Left(0).Bottom(0).Width(queueWidth)
+	out := queueOut
+	if a.showLyrics {
+		out = panelOut
+	}
+	a.queueShow.animate(c, col, out, sideSpring)
+	// A press anywhere else closes it, as a popover: the queue has no
+	// focus of its own to lose. Nothing to do while it is already going.
+	if a.showQueue && !a.queueShow.going && !a.queueBtnHover && col.PressedOutside() {
+		a.showQueue = false
+	}
+	col.Children(func() {
+		ui.Box(c).Height(topHeight).DragWindow()
+		ui.Column(c).Grow(1).MinHeight(0).Margin(0, 8, 8, 0).Radius(radiusXl).Background(colCard).Border(1, colLine).Clip().Children(func() {
+			ui.Row(c).Padding(12, 10, 12, 16).AlignItems(ui.Center).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(colLine).Children(func() {
+				ui.Column(c).Grow(1).Gap(1).Children(func() {
+					ui.Text(c, "播放队列").FontSize(14).FontWeight(600)
+					ui.Text(c, fmt.Sprintf("%d 首歌曲", len(a.queue))).FontSize(12).TextColor(colMuted)
+				})
+				if len(a.queue) > 0 && iconButton(c, icTrash, 16, colMuted, "清空").Clicked() {
+					a.clearQueue()
+				}
+				if iconButton(c, icClose, 16, colMuted, "关闭").Clicked() {
+					a.showQueue = false
+				}
+			})
+			if len(a.queue) == 0 {
+				ui.Column(c).Padding(32, 16).Gap(10).AlignItems(ui.Center).Children(func() {
+					ui.Box(c).Size(40, 40).Radius(radiusLg).Background(colHover).Center().Children(func() {
+						ui.Icon(c, icQueue).FontSize(20).TextColor(colText)
+					})
+					ui.Text(c, "队列是空的").FontSize(14).FontWeight(500)
+					ui.Text(c, "去找些好听的歌吧").FontSize(13).TextColor(colMuted)
+				})
+				return
+			}
+			// The numbers are as wide as the longest, right aligned.
+			numWidth := float32(7*len(fmt.Sprint(len(a.queue))) + 2)
+			ui.List(c, &a.queueList, len(a.queue), func(i int) {
+				s := a.queue[i]
+				on := i == a.cur
+				// Room above the first row and below the last, off the
+				// card's edges.
+				var top, bottom float32
+				if i == 0 {
+					top = 6
+				}
+				if i == len(a.queue)-1 {
+					bottom = 6
+				}
+				row := ui.Row(c.Key(i)).Margin(top, 6, bottom, 6).Padding(6, 6, 6, 8).Gap(10).Radius(radiusMd).AlignItems(ui.Center)
+				hover := row.Hovered()
+				if hover || on {
+					row.Background(colHover)
+				}
+				row.Children(func() {
+					num := ui.Text(c, fmt.Sprint(i+1)).Width(numWidth).TextAlign(ui.End).FontSize(12).FontFeatures("tnum").TextColor(colDim)
+					if on {
+						num.TextColor(colAccent)
+					}
+					a.cover(c, s.Cover(150), 36, radiusSm)
+					ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
+						t := ui.Text(c, s.DisplayName()).FontSize(13).FontWeight(500).SingleLine()
+						if on {
+							t.TextColor(colAccent)
+						}
+						a.singerLinks(c, s.Singers, 12)
+					})
+					if hover {
+						if iconButton(c, icClose, 14, colMuted, "移除").OnClick(func() { a.removeFromQueue(i) }).Valid() {
+						}
+					} else if on {
+						a.equalizer(c)
+					}
+				})
+				if row.DoubleClicked() {
+					a.playAt(i)
+				}
+			}).Grow(1)
+		})
+	})
+}

@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QQ音乐 内存监控</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f3f3f1;
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7a7974;
+  --grid: #e6e5e1;
+  --axis: #c9c8c2;
+  --marker: #8d8c86;
+  --border: #e2e1dc;
+  --button: #ffffff;
+  --button-hover: #efeeea;
+  --selected: #0b0b0b;
+  --selected-text: #ffffff;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #101010;
+    --surface-1: #1a1a19;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8e86;
+    --grid: #2a2a28;
+    --axis: #45443f;
+    --marker: #77766f;
+    --border: #2e2e2b;
+    --button: #232321;
+    --button-hover: #2e2e2b;
+    --selected: #f0efec;
+    --selected-text: #101010;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #101010;
+  --surface-1: #1a1a19;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8f8e86;
+  --grid: #2a2a28;
+  --axis: #45443f;
+  --marker: #77766f;
+  --border: #2e2e2b;
+  --button: #232321;
+  --button-hover: #2e2e2b;
+  --selected: #f0efec;
+  --selected-text: #101010;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font: 14px/1.5 "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+}
+main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 20px; margin: 0; font-weight: 600; }
+h2 { font-size: 15px; margin: 0 0 2px; font-weight: 600; }
+.sub { color: var(--text-secondary); margin: 2px 0 0; font-size: 13px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 20px 0 16px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; }
+.seg button + button { border-left: 1px solid var(--border); }
+button {
+  font: inherit; font-size: 13px; color: var(--text-primary); background: var(--button);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+}
+button:hover { background: var(--button-hover); }
+button[aria-pressed="true"] { background: var(--selected); color: var(--selected-text); }
+button:focus-visible, .plot:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+.status { color: var(--text-muted); font-size: 13px; margin-left: auto; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.tile .label { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 13px; }
+.tile .value { font-size: 24px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.tile .delta { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.key { display: inline-block; width: 14px; height: 2px; border-radius: 1px; flex: none; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.card .head { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text-secondary); font-size: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend .mark { width: 0; height: 12px; border-left: 1px dashed var(--marker); }
+.legend .tick { width: 2px; height: 8px; background: var(--marker); }
+.plotwrap { position: relative; }
+.plot { display: block; width: 100%; touch-action: none; }
+.plot text { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.plot .dlabel { fill: var(--text-secondary); font-size: 12px; }
+.loading .plot { opacity: .5; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 2; min-width: 190px; max-width: 280px;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 8px 10px; font-size: 12px; display: none;
+}
+.tip .time { color: var(--text-muted); margin-bottom: 4px; }
+.tip .row { display: flex; align-items: center; gap: 8px; }
+.tip .row b { font-variant-numeric: tabular-nums; min-width: 64px; }
+.tip .row span:last-child { color: var(--text-secondary); }
+.tip .ev { color: var(--text-secondary); border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
+.help { color: var(--text-secondary); font-size: 13px; }
+.help ul { margin: 6px 0 0; padding-left: 18px; }
+.help li { margin: 4px 0; }
+.help b { color: var(--text-primary); font-weight: 600; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+td { padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+td:last-child { color: var(--text-primary); }
+.events { max-height: 320px; overflow: auto; }
+.empty { color: var(--text-muted); padding: 12px 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>QQ音乐 内存监控</h1>
+  <p class="sub">每秒采样一次，程序内保留最近 1 小时；页面每 2 秒自动刷新。</p>
+
+  <div class="controls">
+    <div class="seg" role="group" aria-label="时间范围">
+      <button data-span="300" aria-pressed="false">5 分钟</button>
+      <button data-span="900" aria-pressed="true">15 分钟</button>
+      <button data-span="3600" aria-pressed="false">1 小时</button>
+    </div>
+    <button id="gc" title="立刻做一次垃圾回收，并把空闲内存还给系统">立即回收内存</button>
+    <span class="status" id="status">连接中…</span>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section class="card" id="memCard">
+    <div class="head">
+      <div>
+        <h2>内存（MB）</h2>
+      </div>
+      <div class="legend" id="memLegend"></div>
+    </div>
+    <div class="plotwrap">
+      <svg class="plot" id="memPlot" height="340" tabindex="0" role="img" aria-label="内存随时间变化的折线图"></svg>
+      <div class="tip" id="memTip"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="head"><h2>goroutine 数</h2></div>
+    <div class="plotwrap">
+      <svg class="plot" id="gorPlot" height="120" role="img" aria-label="goroutine 数随时间变化的折线图"></svg>
+      <div class="tip" id="gorTip"></div>
+    </div>
+  </section>
+
+  <section class="card help">
+    <h2>怎么看</h2>
+    <ul>
+      <li><b>私有工作集</b>：任务管理器“内存”那一列的数字，程序实际占着的物理内存。</li>
+      <li><b>提交大小</b>：程序向系统申请的全部内存，包括显卡驱动的一大块（约 100–140 MB，基本固定，程序控制不了）。</li>
+      <li><b>Go 堆在用</b>：程序自己的数据，比如正在播放这首歌的缓冲（约 10 MB）、封面图片。<b>判断泄漏主要看它</b>：切歌后会先涨一下，然后回落；如果每切一首都抬高一截、回收后也不下来，才是泄漏。</li>
+      <li><b>Go 空闲未归还</b>：已经不用、但 Go 还没还给系统的内存。它涨不是泄漏，程序会在切歌下载完、图片加载完 3 秒后把它归还（图里底部的小刻度）。</li>
+      <li>虚线是切歌的时刻。点“立即回收内存”后，如果“Go 堆在用”和“私有工作集”都降下来，说明涨上去的部分都能回收，没有泄漏。</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <div class="head"><h2>事件记录</h2></div>
+    <div class="events">
+      <table>
+        <thead><tr><th style="width:96px">时间</th><th style="width:96px">类型</th><th>内容</th></tr></thead>
+        <tbody id="events"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const MB = 1 << 20;
+const KEEP = 3600 * 1000;
+// Columns of a sample: [t, privateWS, commit, heapLive, heapFree, goroutines].
+const SERIES = [
+  { i: 1, name: "私有工作集", color: "--series-1" },
+  { i: 2, name: "提交大小", color: "--series-2" },
+  { i: 3, name: "Go 堆在用", color: "--series-3" },
+  { i: 4, name: "Go 空闲未归还", color: "--series-4" },
+];
+const KINDS = { song: "切歌", trim: "自动归还", gc: "手动回收" };
+const NS = "http://www.w3.org/2000/svg";
+
+let samples = [], events = [], since = 0, span = 900, hoverT = null, failed = false;
+
+const $ = (id) => document.getElementById(id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmtMB = (b) => (b / MB).toFixed(1) + " MB";
+const pad = (n) => String(n).padStart(2, "0");
+const fmtTime = (t) => { const d = new Date(t); return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); };
+const fmtClock = (t) => { const d = new Date(t); return pad(d.getHours()) + ":" + pad(d.getMinutes()); };
+
+function el(name, attrs, parent) {
+  const e = document.createElementNS(NS, name);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function div(cls, parent, text) {
+  const e = document.createElement(cls.startsWith("<") ? cls.slice(1) : "div");
+  if (!cls.startsWith("<")) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+// The legend: a line key per series, then the markers.
+(function legend() {
+  const lg = $("memLegend");
+  for (const s of SERIES) {
+    const item = div("<span", lg);
+    const k = div("key", item); k.style.background = `var(${s.color})`;
+    item.appendChild(document.createTextNode(s.name));
+  }
+  const song = div("<span", lg); div("mark", song); song.appendChild(document.createTextNode("切歌"));
+  const trim = div("<span", lg); div("tick", trim); trim.appendChild(document.createTextNode("归还内存"));
+})();
+
+function niceStep(max, ticks) {
+  const raw = max / ticks;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= raw) return m * p;
+  return 10 * p;
+}
+
+function visible() {
+  if (!samples.length) return [];
+  const end = samples[samples.length - 1][0];
+  const start = end - span * 1000;
+  let lo = 0;
+  while (lo < samples.length && samples[lo][0] < start) lo++;
+  return samples.slice(Math.max(0, lo - 1));
+}
+
+function nearest(list, t) {
+  let lo = 0, hi = list.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid][0] < t) lo = mid + 1; else hi = mid;
+  }
+  if (lo > 0 && Math.abs(list[lo - 1][0] - t) < Math.abs(list[lo][0] - t)) lo--;
+  return list[lo];
+}
+
+// chart draws series of the samples in list into svg, and returns how to
+// map a time to x, for the hover layer.
+function chart(svg, list, series, opts) {
+  svg.textContent = "";
+  const W = svg.clientWidth || svg.parentNode.clientWidth;
+  const H = +svg.getAttribute("height");
+  const narrow = W < 640;
+  // The same margins in each chart, so that their times line up.
+  const m = { l: 44, r: narrow ? 12 : 128, t: 12, b: 24 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (!list.length || pw <= 0) return null;
+  // Less than the span recorded yet: what there is fills the width.
+  const end = list[list.length - 1][0];
+  const start = Math.min(Math.max(end - span * 1000, list[0][0]), end - 60000);
+  const x = (t) => m.l + (t - start) / (end - start) * pw;
+  let max = 0;
+  for (const r of list) for (const s of series) max = Math.max(max, r[s.i] / opts.unit);
+  const step = niceStep(Math.max(max, opts.min), 4);
+  const top = Math.ceil(Math.max(max, opts.min) * 1.08 / step) * step;
+  const y = (v) => m.t + ph - v / top * ph;
+
+  // Grid and axes: recessive.
+  for (let v = 0; v <= top + 1e-9; v += step) {
+    el("line", { x1: m.l, x2: m.l + pw, y1: y(v), y2: y(v), stroke: v === 0 ? css("--axis") : css("--grid"), "stroke-width": 1 }, svg);
+    const tx = el("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end" }, svg);
+    tx.textContent = Math.round(v);
+  }
+  const tStep = [30, 60, 120, 300, 600, 900].map((s) => s * 1000).find((s) => (end - start) / s <= Math.max(2, pw / 110)) || 900000;
+  for (let t = Math.ceil(start / tStep) * tStep; t <= end; t += tStep) {
+    const tx = el("text", { x: x(t), y: H - 6, "text-anchor": "middle" }, svg);
+    tx.textContent = tStep < 60000 ? fmtTime(t) : fmtClock(t);
+  }
+
+  // Events: songs as dashed lines, heap given back as ticks on the axis.
+  if (opts.events) {
+    for (const e of events) {
+      if (e[0] < start || e[0] > end) continue;
+      const ex = x(e[0]);
+      if (e[1] === "trim") {
+        el("line", { x1: ex, x2: ex, y1: m.t + ph - 8, y2: m.t + ph, stroke: css("--marker"), "stroke-width": 2 }, svg);
+      } else {
+        el("line", { x1: ex, x2: ex, y1: m.t, y2: m.t + ph, stroke: css("--marker"), "stroke-width": 1, "stroke-dasharray": "3 3" }, svg);
+      }
+    }
+  }
+
+  // The lines, 2px.
+  for (const s of series) {
+    let d = "";
+    for (const r of list) d += (d ? "L" : "M") + x(r[0]).toFixed(1) + " " + y(r[s.i] / opts.unit).toFixed(1);
+    el("path", { d, fill: "none", stroke: css(s.color), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+  }
+
+  // Direct labels at the right end, kept 14px apart.
+  if (opts.labels && !narrow) {
+    const last = list[list.length - 1];
+    const labels = series.map((s) => ({ s, v: last[s.i] / opts.unit, y: y(last[s.i] / opts.unit) })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 14);
+    const over = labels.length ? labels[labels.length - 1].y - (m.t + ph) : 0;
+    if (over > 0) for (const l of labels) l.y -= over;
+    for (const l of labels) {
+      el("line", { x1: m.l + pw + 6, x2: m.l + pw + 16, y1: l.y, y2: l.y, stroke: css(l.s.color), "stroke-width": 2, "stroke-linecap": "round" }, svg);
+      const tx = el("text", { x: m.l + pw + 20, y: l.y + 4, class: "dlabel" }, svg);
+      tx.textContent = l.v.toFixed(0) + " " + l.s.name;
+    }
+  }
+
+  // The crosshair, at the hovered time.
+  if (hoverT !== null) {
+    const r = nearest(list, hoverT);
+    const hx = x(r[0]);
+    el("line", { x1: hx, x2: hx, y1: m.t, y2: m.t + ph, stroke: css("--text-muted"), "stroke-width": 1 }, svg);
+    for (const s of series) {
+      el("circle", { cx: hx, cy: y(r[s.i] / opts.unit), r: 4.5, fill: css(s.color), stroke: css("--surface-1"), "stroke-width": 2 }, svg);
+    }
+  }
+  return { x, start, end, m, pw };
+}
+
+function tooltip(tip, geo, list, series, opts) {
+  if (hoverT === null || !geo || !list.length) { tip.style.display = "none"; return; }
+  const r = nearest(list, hoverT);
+  tip.textContent = "";
+  div("time", tip, fmtTime(r[0]));
+  for (const s of series) {
+    const row = div("row", tip);
+    const k = div("key", row); k.style.background = `var(${s.color})`;
+    div("<b", row, opts.fmt(r[s.i]));
+    div("<span", row, s.name);
+  }
+  if (opts.events) {
+    const row = div("row", tip);
+    div("key", row);
+    div("<b", row, fmtMB(Math.max(0, r[2] - r[3] - r[4])));
+    div("<span", row, "其中非 Go（显卡驱动等）");
+    const near = events.filter((e) => Math.abs(e[0] - r[0]) <= Math.max(1500, span * 4));
+    for (const e of near.slice(-4)) div("ev", tip, fmtTime(e[0]) + " " + KINDS[e[1]] + (e[2] ? "：" + e[2] : ""));
+  }
+  tip.style.display = "block";
+  const wrap = tip.parentNode.getBoundingClientRect();
+  const px = geo.x(r[0]);
+  let left = px + 14;
+  if (left + tip.offsetWidth > wrap.width) left = px - 14 - tip.offsetWidth;
+  tip.style.left = Math.max(0, left) + "px";
+  tip.style.top = "8px";
+}
+
+const memOpts = { unit: MB, min: 50, labels: true, events: true, fmt: fmtMB };
+const gorOpts = { unit: 1, min: 10, labels: false, events: false, fmt: (v) => String(v) };
+const GOR = [{ i: 5, name: "goroutine", color: "--series-1" }];
+
+function render() {
+  const list = visible();
+  const g1 = chart($("memPlot"), list, SERIES, memOpts);
+  const g2 = chart($("gorPlot"), list, GOR, gorOpts);
+  tooltip($("memTip"), g1, list, SERIES, memOpts);
+  tooltip($("gorTip"), g2, list, GOR, gorOpts);
+  renderTiles(list);
+  bindHover($("memPlot"), g1);
+  bindHover($("gorPlot"), g2);
+}
+
+function renderTiles(list) {
+  const tiles = $("tiles");
+  tiles.textContent = "";
+  if (!list.length) return;
+  const last = list[list.length - 1], first = list[0];
+  const items = SERIES.map((s) => ({ name: s.name, color: s.color, v: fmtMB(last[s.i]), d: last[s.i] - first[s.i], mb: true }));
+  items.push({ name: "goroutine", v: String(last[5]), d: last[5] - first[5], mb: false });
+  for (const it of items) {
+    const t = div("tile", tiles);
+    const l = div("label", t);
+    if (it.color) { const k = div("key", l); k.style.background = `var(${it.color})`; }
+    l.appendChild(document.createTextNode(it.name));
+    div("value", t, it.v);
+    const sign = it.d > 0 ? "+" : it.d < 0 ? "−" : "±";
+    const mag = it.mb ? (Math.abs(it.d) / MB).toFixed(1) + " MB" : String(Math.abs(it.d));
+    div("delta", t, `所选时间内 ${sign}${mag}`);
+  }
+}
+
+function renderEvents() {
+  const tb = $("events");
+  tb.textContent = "";
+  if (!events.length) {
+    const tr = div("<tr", tb); const td = div("<td", tr, "还没有事件。播放或切换一首歌试试。");
+    td.colSpan = 3; td.className = "empty";
+    return;
+  }
+  for (const e of events.slice().reverse()) {
+    const tr = div("<tr", tb);
+    div("<td", tr, fmtTime(e[0]));
+    div("<td", tr, KINDS[e[1]] || e[1]);
+    div("<td", tr, e[1] === "song" ? e[2] : e[2] ? "归还 " + e[2] : "");
+  }
+}
+
+const geos = new WeakMap();
+function bindHover(svg, geo) {
+  geos.set(svg, geo);
+  if (svg.dataset.bound) return;
+  svg.dataset.bound = "1";
+  svg.addEventListener("pointermove", (ev) => {
+    const g = geos.get(svg);
+    if (!g) return;
+    const rect = svg.getBoundingClientRect();
+    const px = ev.clientX - rect.left;
+    hoverT = g.start + (px - g.m.l) / g.pw * (g.end - g.start);
+    hoverT = Math.min(Math.max(hoverT, g.start), g.end);
+    render();
+  });
+  svg.addEventListener("pointerleave", () => { hoverT = null; render(); });
+  svg.addEventListener("keydown", (ev) => {
+    const list = visible();
+    if (!list.length || (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight")) return;
+    ev.preventDefault();
+    const r = hoverT === null ? list[list.length - 1] : nearest(list, hoverT);
+    const i = list.indexOf(r) + (ev.key === "ArrowLeft" ? -5 : 5);
+    hoverT = list[Math.min(Math.max(i, 0), list.length - 1)][0];
+    render();
+  });
+  svg.addEventListener("blur", () => { hoverT = null; render(); });
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/mem.json?since=" + since, { cache: "no-store" });
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    samples.push(...data.s);
+    if (data.e.length) { events.push(...data.e); renderEvents(); }
+    if (samples.length) since = samples[samples.length - 1][0];
+    const cut = since - KEEP;
+    while (samples.length && samples[0][0] < cut) samples.shift();
+    while (events.length && events[0][0] < cut) events.shift();
+    failed = false;
+    $("status").textContent = "最近更新 " + fmtTime(Date.now());
+  } catch (e) {
+    failed = true;
+    $("status").textContent = "连不上 QQ音乐，程序可能已关闭";
+  } finally {
+    document.body.classList.toggle("loading", failed);
+    render();
+  }
+}
+
+for (const b of document.querySelectorAll("[data-span]")) {
+  b.addEventListener("click", () => {
+    span = +b.dataset.span;
+    for (const o of document.querySelectorAll("[data-span]")) o.setAttribute("aria-pressed", String(o === b));
+    render();
+  });
+}
+$("gc").addEventListener("click", async () => {
+  $("gc").disabled = true;
+  try { await fetch("/mem/gc", { method: "POST" }); } catch (e) {}
+  $("gc").disabled = false;
+  poll();
+});
+window.addEventListener("resize", render);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+
+renderEvents();
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

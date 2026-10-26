@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbfaf7"/>
+      <stop offset="1" stop-color="#d6d2c9"/>
+    </linearGradient>
+    <radialGradient id="vinyl" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#333333"/>
+      <stop offset="1" stop-color="#121212"/>
+    </radialGradient>
+    <radialGradient id="label" cx="0.4" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#47d491"/>
+      <stop offset="1" stop-color="#1f9a5c"/>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="220" fill="url(#base)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="220" fill="none" stroke="#000000" stroke-opacity=".25" stroke-width="24"/>
+  <circle cx="480" cy="530" r="404" fill="#9a9a9a"/>
+  <circle cx="480" cy="530" r="384" fill="url(#vinyl)"/>
+  <circle cx="480" cy="530" r="270" fill="none" stroke="#ffffff" stroke-opacity=".12" stroke-width="16"/>
+  <circle cx="480" cy="530" r="160" fill="url(#label)"/>
+  <path d="M 860 150 L 700 560" fill="none" stroke="#e6e6e6" stroke-width="64" stroke-linecap="round"/>
+  <circle cx="860" cy="150" r="96" fill="#bdbdbd"/>
+  <circle cx="860" cy="150" r="44" fill="#3a3a3a"/>
+</svg>

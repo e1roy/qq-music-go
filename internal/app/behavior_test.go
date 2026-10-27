@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"qqmusic/internal/player"
 	"qqmusic/internal/playqueue"
 	"qqmusic/internal/qqmusic"
 	"qqmusic/internal/xiaoyuzhou"
@@ -315,7 +317,7 @@ func TestPersistedFiles(t *testing.T) {
 	}
 	a, f := newOfflineApp(t, dir)
 	want := settings{Volume: 0.5, Quality: qqmusic.High, Mode: playqueue.Shuffle, MineClosed: true, Searches: []string{"晴天"},
-		WinX: 10, WinY: 20, WinWidth: 1100, WinHeight: 780, XiaoyuzhouOfficial: true}
+		WinX: 10, WinY: 20, WinWidth: 1100, WinHeight: 780, XiaoyuzhouOfficial: true, CacheGB: 2}
 	if !reflect.DeepEqual(a.set, want) || a.volume != 0.5 {
 		t.Errorf("settings %+v, want %+v", a.set, want)
 	}
@@ -631,5 +633,181 @@ func TestXiaoyuzhouLoginSearchesWhenShown(t *testing.T) {
 	a.navigate(page{kind: pageSearch, title: "搜索"})
 	if !s.xiaoyuzhouShows.loading || s.podcasts.loading {
 		t.Fatalf("search page shown: 小宇宙 %v, QQ %v", s.xiaoyuzhouShows.loading, s.podcasts.loading)
+	}
+}
+
+// TestFrameBudget is how often the view is built while nothing it shows
+// changes: never on a still page, and only at the player bar's pace while
+// a song plays. An animation left running would cost CPU unnoticed.
+func TestFrameBudget(t *testing.T) {
+	a, f := newOfflineApp(t, t.TempDir())
+	builds := 0
+	tt := ui.NewTester(func(c *ui.Context) { builds++; a.view(c) }, 1280, 820)
+	perSecond := func() int {
+		for end := time.After(300 * time.Millisecond); ; {
+			select {
+			case fn := <-f.posts:
+				fn()
+				tt.Frame()
+				continue
+			case <-end:
+			}
+			break
+		}
+		tt.Frame()
+		tt.Advance(2 * time.Second) // for what moves in to settle
+		builds = 0
+		tt.Advance(time.Second)
+		return builds
+	}
+	if n := perSecond(); n > 0 {
+		t.Errorf("a still page: %d builds a second", n)
+	}
+
+	// A song whose sound never comes: it loads, as one playing does.
+	hold := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-hold:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(hold) })
+	t.Cleanup(a.player.Stop)
+	song := episodes("a")[0]
+	song.URL = srv.URL
+	setQueue(a, []qqmusic.Song{song}, 0)
+	a.playAt(0)
+	// Loading is set on the worker, which posts nothing until the sound
+	// comes.
+	for deadline := time.Now().Add(5 * time.Second); !a.player.Loading(); {
+		if time.Now().After(deadline) {
+			t.Fatal("the song never started loading")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := perSecond(); n < 3 || n > 5 {
+		t.Errorf("a song playing: %d builds a second, want 4", n)
+	}
+	a.showLyrics = true
+	if n := perSecond(); n < 9 || n > 11 {
+		t.Errorf("its lyrics: %d builds a second, want 10", n)
+	}
+}
+
+// TestPlayFromCache plays a song the cache keeps without asking for its
+// URL, which offline would fail, and says the quality it got then; as
+// SongURL, it needs the login.
+func TestPlayFromCache(t *testing.T) {
+	a, f := newOfflineApp(t, t.TempDir())
+	a.player.Cache = player.NewCache(t.TempDir(), 1<<30)
+	a.player.SetVolume(0)
+	t.Cleanup(a.player.Stop)
+	data, err := os.ReadFile("../player/testdata/sine.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(data) }))
+	t.Cleanup(srv.Close)
+	key := fmt.Sprintf("m1-%d", qqmusic.Best)
+	if _, err := a.player.Load(player.Source{URL: srv.URL, Key: key, Note: fmt.Sprint(int(qqmusic.High))}, 0); err != nil {
+		t.Fatal(err)
+	}
+	for a.player.Buffered() < 1 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	a.player.Stop()
+
+	a.api.SetCredential(qqmusic.Credential{MusicID: 1, MusicKey: "k"})
+	setQueue(a, []qqmusic.Song{{Mid: "m1", Name: "m1"}}, 0)
+	a.playAt(0)
+	drain(t, f, 5*time.Second, func() bool { return a.qualityKnown || a.playErr != "" })
+	if a.playErr != "" || a.gotQuality != qqmusic.High || !a.player.Loaded() {
+		t.Fatalf("error %q, got %v, loaded %v", a.playErr, a.gotQuality, a.player.Loaded())
+	}
+
+	a.api.SetCredential(qqmusic.Credential{})
+	a.qualityKnown = false
+	a.playAt(0)
+	drain(t, f, 5*time.Second, func() bool { return a.playErr != "" })
+	if a.player.Loaded() {
+		t.Fatal("played from the cache logged out")
+	}
+}
+
+// TestSettings opens 设置 from the gear beside the user, not the user's
+// menu, and sets the song cache there: its limit, kept, and clearing it.
+func TestSettings(t *testing.T) {
+	data := t.TempDir()
+	a, f := newOfflineApp(t, data)
+	dir := t.TempDir()
+	a.player.Cache = player.NewCache(dir, 2<<30)
+	os.WriteFile(filepath.Join(dir, "x.audio"), make([]byte, 1000), 0o600)
+	a.api.SetCredential(qqmusic.Credential{MusicID: 1, MusicKey: "k"})
+	a.user.Nick = "e1roy"
+	tt := ui.NewTester(a.view, 1280, 820)
+	tt.Frame()
+	if err := tt.Click("e1roy"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(tt.Menu(), "退出登录") {
+		t.Fatalf("the user's menu: %q", tt.Menu())
+	}
+	tt.CloseMenu()
+	if err := tt.Click("设置"); err != nil {
+		t.Fatal(err)
+	}
+	drain(t, f, 5*time.Second, func() bool { return a.cacheUsed >= 0 && !a.cacheBusy })
+	tt.Frame()
+	if a.current().kind != pageSettings || len(tt.Menu()) != 0 {
+		t.Fatalf("at %v, menu %q", a.current().kind, tt.Menu())
+	}
+	if a.cacheUsed != 1000 || !tt.HasText("空间上限") {
+		t.Fatalf("used %d", a.cacheUsed)
+	}
+	if err := tt.Click("5 GB"); err != nil {
+		t.Fatal(err)
+	}
+	if a.set.CacheGB != 5 {
+		t.Fatalf("limit %d GB", a.set.CacheGB)
+	}
+	drain(t, f, 5*time.Second, func() bool { return !a.cacheBusy })
+	tt.Frame()
+	if err := tt.Click("清空缓存"); err != nil {
+		t.Fatal(err)
+	}
+	drain(t, f, 5*time.Second, func() bool { return !a.cacheBusy })
+	if a.cacheUsed != 0 {
+		t.Fatalf("cleared, the cache takes %d", a.cacheUsed)
+	}
+	var saved settings
+	if !readJSON(t, filepath.Join(data, fileSettings), &saved) || saved.CacheGB != 5 {
+		t.Fatalf("saved %+v", saved)
+	}
+}
+
+// TestDownloadName is the name of the file a song downloads to: its own,
+// and the type its URL ends in.
+func TestDownloadName(t *testing.T) {
+	a, f := newOfflineApp(t, t.TempDir())
+	dir := t.TempDir()
+	a.player.Cache = player.NewCache(dir, 1<<30)
+	a.player.SetVolume(0)
+	t.Cleanup(a.player.Stop)
+	data, err := os.ReadFile("../player/testdata/sine.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(data) }))
+	t.Cleanup(srv.Close)
+	ep := episodes("医生")[0]
+	ep.URL = srv.URL + "/ep/1.mp3?t=1"
+	setQueue(a, []qqmusic.Song{ep}, 0)
+	a.playAt(0)
+	drain(t, f, 5*time.Second, func() bool { return a.player.Loaded() || a.playErr != "" })
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), "-医生-mp3.audio") {
+		t.Fatalf("files %v, error %q", entries, a.playErr)
 	}
 }

@@ -38,6 +38,8 @@ func (a *app) content(c *ui.Context) {
 		a.xiaoyuzhouShowPage(c, p)
 	case pageXiaoyuzhouCategory:
 		a.xiaoyuzhouCategoryPage(c, p)
+	case pageSettings:
+		a.settingsPage(c)
 	}
 }
 

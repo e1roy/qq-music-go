@@ -2,9 +2,15 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"net/url"
+	"path"
+	"strconv"
+	"strings"
 	"time"
 
 	"qqmusic/internal/diag"
+	"qqmusic/internal/player"
 	"qqmusic/internal/playqueue"
 	"qqmusic/internal/qqmusic"
 )
@@ -119,28 +125,49 @@ func (a *app) playAt(i int) {
 	a.seekValue, a.downloaded = 0, false
 	a.player.Stop()
 	q := a.set.Quality
-	// An episode is long, and the player keeps the whole file: one of an
-	// hour at 320k would hold 144 MB.
+	// An episode is long, and played once: one of an hour at 320k would
+	// be 144 MB to download. The cache does not keep it.
 	podcast := a.qqEpisode(s)
 	if podcast {
 		q = qqmusic.Standard
 	}
+	loggedIn := a.api.LoggedIn()
 	a.do(func(ctx context.Context) func() {
-		var url string
+		var src player.Source
 		var got qqmusic.Quality
 		var err error
 		switch {
 		case isXiaoyuzhou(s) && s.URL != "":
-			url = s.URL
+			src.URL, src.Name = s.URL, s.Name
 		case isXiaoyuzhou(s):
 			// Bought, its sound has a URL of a few hours.
-			url, err = a.xiaoyuzhou.api.PrivateMediaURL(ctx, s.Mid)
+			src.Name = s.Name
+			src.URL, err = a.xiaoyuzhou.api.PrivateMediaURL(ctx, s.Mid)
 		default:
-			url, got, err = a.api.SongURL(ctx, s, q)
+			// A song played whole before plays from the cache, as asked
+			// for at the same quality, with what it got then: its URL is
+			// not asked for again. As SongURL, it needs the login.
+			if !podcast {
+				src.Key = fmt.Sprintf("%s-%d", s.Mid, q)
+			}
+			if note, ok := a.player.Cache.Lookup(src.Key); ok && loggedIn {
+				n, _ := strconv.Atoi(note)
+				got = qqmusic.Quality(n)
+				break
+			}
+			src.URL, got, err = a.api.SongURL(ctx, s, q)
+			src.Note, src.Name = strconv.Itoa(int(got)), s.Name+"-"+got.String()
+		}
+		// The file's type, for its name: what its URL ends in, as QQ
+		// Music's F000….flac and 小宇宙's ….m4a do.
+		if u, perr := url.Parse(src.URL); perr == nil && err == nil {
+			if ext := strings.TrimPrefix(path.Ext(u.Path), "."); ext != "" {
+				src.Name += "-" + ext
+			}
 		}
 		if err == nil {
 			var ok bool
-			ok, err = a.player.Load(url, time.Duration(s.Interval)*time.Second)
+			ok, err = a.player.Load(src, time.Duration(s.Interval)*time.Second)
 			if !ok {
 				return nil
 			}

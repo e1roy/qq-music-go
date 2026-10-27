@@ -107,8 +107,11 @@ func (a *app) view(c *ui.Context) {
 			ui.Box(c).Height(8).DragWindow()
 			ui.Row(c).Grow(1).AlignItems(ui.Stretch).MinHeight(0).Children(func() {
 				// The queue is a column of the panel, on its right, on the
-				// same color as the page: one panel, not two.
-				ui.Row(c).Grow(1).MinWidth(0).AlignItems(ui.Stretch).Radius(radiusXl).Background(colPanel).Clip().Draw(a.tint.band(tintHeight)).DrawOver(fadingPanelCorners).Children(func() {
+				// same color as the page: one panel, not two. Its clip has no
+				// radius: fadingPanelCorners paints the corners over it, and a
+				// rounded clip this large is a mask of the whole panel, 17 MB
+				// of the heap at 150% and as much again on the GPU.
+				ui.Row(c).Grow(1).MinWidth(0).AlignItems(ui.Stretch).Background(colPanel).Clip().Draw(a.tint.band(tintHeight)).DrawOver(fadingPanelCorners).Children(func() {
 					ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 						// Each page is an element of its own, which comes in as it
 						// is first shown. The lyrics cover it, and the title bar,
@@ -453,9 +456,22 @@ func (a *app) searchMenu(c *ui.Context, anchor ui.Element) {
 }
 
 // userArea is the user at the foot of the sidebar, with a menu, or a way
-// in when no one is logged in, as shadcn's NavUser.
+// in when no one is logged in, as shadcn's NavUser; beside it, 设置.
 func (a *app) userArea(c *ui.Context) {
-	row := ui.Row(c).Margin(0, 8, 8, 8).Padding(10, 16).Gap(12).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	ui.Row(c).Margin(0, 8, 8, 8).Gap(4).AlignItems(ui.Center).Children(func() {
+		a.userRow(c)
+		gear := iconButton(c, icSettings, 18, colMuted, "设置").Label("设置")
+		if a.current().kind == pageSettings {
+			gear.Background(colHover)
+		}
+		if gear.Clicked() {
+			a.navigate(page{kind: pageSettings, title: "设置"})
+		}
+	})
+}
+
+func (a *app) userRow(c *ui.Context) {
+	row := ui.Row(c).Grow(1).MinWidth(0).Padding(10, 16).Gap(12).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 	if row.Hovered() {
 		row.Background(colHover)
 	}
@@ -494,7 +510,6 @@ func (a *app) userArea(c *ui.Context) {
 			ui.Text(c, nick).FontSize(14).FontWeight(500).SingleLine()
 			ui.Text(c, sub).FontSize(12).TextColor(colMuted).SingleLine()
 		})
-		ui.Icon(c, icUpDown).FontSize(16).TextColor(colMuted)
 	})
 }
 

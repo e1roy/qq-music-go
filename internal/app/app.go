@@ -36,6 +36,8 @@ type platform interface {
 	ToggleMaximize()
 	Maximized() bool
 	Close()
+	// OpenFolder shows a folder in the system's file manager.
+	OpenFolder(path string)
 }
 
 type cookie struct{ Name, Value, Domain, Path string }
@@ -139,6 +141,11 @@ type app struct {
 	podcast    podcasts        // 小宇宙
 	xiaoyuzhou xiaoyuzhouState // 小宇宙 官方
 
+	// 设置: the section shown, of settingsSections, and the song cache.
+	settingsTab int
+	cacheUsed   int64 // the bytes the song cache takes, as last measured; -1 until then
+	cacheBusy   bool  // the cache is being cleared, trimmed or measured
+
 	// The user.
 	user      qqmusic.User
 	loggingIn bool // checking a saved login at start
@@ -214,7 +221,8 @@ func newApp(plat platform, dir string) *app {
 		liking:  map[int64]bool{},
 		podcast: podcasts{known: map[string]bool{}},
 		// 小宇宙's own podcasts, rather than QQ Music's.
-		set: settings{Volume: 0.8, Quality: qqmusic.Best, XiaoyuzhouOfficial: true},
+		set:       settings{Volume: 0.8, Quality: qqmusic.Best, XiaoyuzhouOfficial: true, CacheGB: 2},
+		cacheUsed: -1,
 	}
 	a.images = newImages(a.api.Fetch, plat.Post, a.trim.soon)
 	a.history = []page{{kind: pageHome}}

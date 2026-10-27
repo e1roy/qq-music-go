@@ -1,6 +1,9 @@
 package app
 
 import (
+	"context"
+	"os"
+
 	"qqmusic/internal/playqueue"
 	"qqmusic/internal/qqmusic"
 )
@@ -39,6 +42,8 @@ type settings struct {
 	// OldOfficial is what v1.0.1 named XiaoyuzhouOfficial: read, never
 	// written.
 	OldOfficial *bool `json:"xyz_official,omitempty"`
+	// How many GB the songs played whole may take on disk: 0 keeps none.
+	CacheGB int `json:"cache_gb"`
 }
 
 // recentMax is how many songs 最近播放 keeps.
@@ -99,6 +104,48 @@ func (a *app) saveQueue() {
 func (a *app) saveSettings() {
 	a.set.Volume = a.volume
 	a.store.Save(fileSettings, a.set, true)
+}
+
+// cacheTiers are the limits of the song cache to choose from, in GB.
+var cacheTiers = []int{0, 1, 2, 5, 10}
+
+// setCacheGB sets how much the song cache keeps, dropping what is past it.
+func (a *app) setCacheGB(gb int) {
+	if gb == a.set.CacheGB {
+		return
+	}
+	a.set.CacheGB = gb
+	a.saveSettings()
+	a.onCache(func() { a.player.Cache.SetLimit(int64(gb) << 30) })
+}
+
+// clearCache drops the songs the cache keeps.
+func (a *app) clearCache() { a.onCache(a.player.Cache.Clear) }
+
+// measureCache finds how much the song cache takes, for 设置.
+func (a *app) measureCache() { a.onCache(func() {}) }
+
+// openCacheFolder shows the folder of the song cache, made if no song
+// downloaded yet.
+func (a *app) openCacheFolder() {
+	dir := a.player.Cache.Dir()
+	a.do(func(context.Context) func() {
+		if os.MkdirAll(dir, 0o700) == nil {
+			a.plat.OpenFolder(dir)
+		}
+		return nil
+	})
+}
+
+// onCache runs fn on a goroutine, as the cache works on the disk, and
+// then measures the cache.
+func (a *app) onCache(fn func()) {
+	a.cacheBusy = true
+	a.do(func(context.Context) func() {
+		fn()
+		used := a.player.Cache.Size()
+		return func() { a.cacheUsed, a.cacheBusy = used, false }
+	})
 }
 
 // setQuality is the quality the songs play at from the next one on.

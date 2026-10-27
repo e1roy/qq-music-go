@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"qqmusic/internal/player"
 	"qqmusic/internal/qqmusic"
 	"qqmusic/internal/xiaoyuzhou"
 	"qqmusic/resources"
@@ -36,6 +37,8 @@ func (d *desktop) WebViewAvailable() bool { return mygo.WebViewAvailable() }
 func (d *desktop) Minimize()       { d.win.Minimize() }
 func (d *desktop) Maximized() bool { return d.win.IsMaximized() }
 func (d *desktop) Close()          { d.win.Close() }
+
+func (d *desktop) OpenFolder(path string) { mygo.Shell.OpenPath(path) }
 
 func (d *desktop) ToggleMaximize() {
 	if d.win.IsMaximized() {
@@ -277,6 +280,10 @@ func Run() error {
 	}
 	d := &desktop{}
 	a := newApp(d, dir)
+	// Beside the settings, the songs would go with a roaming profile.
+	if base, err := os.UserCacheDir(); err == nil {
+		a.player.Cache = player.NewCache(filepath.Join(base, "QQMusicGo", "songs"), int64(a.set.CacheGB)<<30)
+	}
 	// The UI is dark whatever the system's appearance: the menus must be
 	// dark too, or their glyphs are dark on black.
 	mygo.Theme.SetSource(mygo.ThemeDark)

@@ -12,6 +12,11 @@ import (
 // Player plays one track at a time. Its methods are safe from any
 // goroutine.
 type Player struct {
+	// Cache is where the tracks download to, keeping those that came
+	// whole; nil keeps them in memory, as they play only. It is set
+	// before the first Load.
+	Cache *Cache
+
 	mu      sync.Mutex
 	p       *audio.Player
 	buf     *buffer
@@ -25,11 +30,26 @@ type Player struct {
 // New returns a player at full volume.
 func New() *Player { return &Player{volume: 1} }
 
-// Load stops what plays and opens url, a track of duration (0 if
+// Source is what Load plays.
+type Source struct {
+	URL string // "" plays Key from the cache
+	// Key is what the cache keeps the file as once whole, with Note to
+	// tell of it: "" keeps it not. It is of letters, digits, - and _.
+	Key, Note string
+	// Name is in the name of the file, for one to tell what it is, as
+	// the song's and its quality's: any text.
+	Name string
+}
+
+// Load stops what plays and opens src, a track of duration (0 if
 // unknown), and plays it. It blocks while the file starts to download,
 // for an MP4 of AAC until its index came: call it from a goroutine. A later Load or Stop makes it return false
 // and drop what it opened.
-func (pl *Player) Load(url string, duration time.Duration) (bool, error) {
+func (pl *Player) Load(src Source, duration time.Duration) (bool, error) {
+	if !validKey(src.Key) {
+		src.Key = ""
+	}
+	src.Name = fileLabel(src.Name)
 	pl.mu.Lock()
 	pl.gen++
 	gen := pl.gen
@@ -46,7 +66,13 @@ func (pl *Player) Load(url string, duration time.Duration) (bool, error) {
 		pl.loading, pl.want, pl.buf = false, false, nil
 		return true, err
 	}
-	b, err := openBuffer(url)
+	var b *buffer
+	var err error
+	if src.URL == "" {
+		b, err = openCached(pl.Cache, src.Key)
+	} else {
+		b, err = openBuffer(src, pl.Cache)
+	}
 	if err != nil {
 		return fail(err)
 	}

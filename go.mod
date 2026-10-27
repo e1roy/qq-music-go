@@ -5,10 +5,11 @@ go 1.27.3
 tool github.com/egoist/mygo/cmd/mygo
 
 require (
-	github.com/egoist/mygo v0.6.4
+	github.com/egoist/mygo v0.7.1
 	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/mewkiz/flac v1.0.14
 	golang.org/x/image v0.46.0
+	rsc.io/qr v0.2.0
 )
 
 require (
@@ -19,5 +20,4 @@ require (
 	github.com/mewpkg/term v0.0.0-20241026122259-37a80af23985 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	rsc.io/qr v0.2.0 // indirect
 )

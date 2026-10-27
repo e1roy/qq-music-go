@@ -24,7 +24,7 @@ func serve(t *testing.T, data []byte) *buffer {
 		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
 	}))
 	t.Cleanup(srv.Close)
-	b, err := openBuffer(srv.URL)
+	b, err := openBuffer(Source{URL: srv.URL}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestStreamDecoder(t *testing.T) {
 	var b *buffer
 	if strings.HasPrefix(url, "http") {
 		var err error
-		if b, err = openBuffer(url); err != nil {
+		if b, err = openBuffer(Source{URL: url}, nil); err != nil {
 			t.Fatal(err)
 		}
 		defer b.Close()
@@ -89,6 +89,45 @@ func TestStreamDecoder(t *testing.T) {
 		t.Error("silence after seeking to 1:00")
 	}
 	t.Logf("peak after seek %.3f in %v, downloaded %.0f%%", peak, time.Since(start), b.Progress()*100)
+}
+
+// TestMP3Seek seeks into two steady sines: the frames there borrow bits
+// from those before and overlap their sound, so decoding from the frame
+// itself starts with noise louder than the music (testdata/sine.mp3 is 5 s
+// of 440 Hz and 3001 Hz, 128 kbps, made with ffmpeg).
+func TestMP3Seek(t *testing.T) {
+	data, err := os.ReadFile("testdata/sine.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := openDecoder(serve(t, data), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]float32, 4*1152*2)
+	peak := func() float32 {
+		n, err := d.Read(buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var p float32
+		for _, s := range buf[:n] {
+			p = max(p, s, -s)
+		}
+		return p
+	}
+	if err := d.SetPosition(44100 / 2); err != nil {
+		t.Fatal(err)
+	}
+	steady := peak()
+	for _, at := range []float64{1, 2.37, 3.9} {
+		if err := d.SetPosition(int64(at * 44100)); err != nil {
+			t.Fatal(err)
+		}
+		if p := peak(); p > steady*1.1 {
+			t.Errorf("at %vs: peak %.2f after the seek, the music's %.2f", at, p, steady)
+		}
+	}
 }
 
 // TestFLAC decodes a FLAC file made here, and checks that seeks land on

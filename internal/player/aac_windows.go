@@ -153,11 +153,10 @@ func newAACDecoder(b *buffer, duration time.Duration) (*aacDecoder, error) {
 	// of it came.
 	size := b.known()
 	if size <= 0 {
-		data, err := b.all()
-		if err != nil {
+		var err error
+		if size, err = b.whole(); err != nil {
 			return nil, err
 		}
-		size = int64(len(data))
 	}
 	if size == 0 {
 		return nil, errors.New("player: empty file")

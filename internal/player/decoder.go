@@ -19,9 +19,10 @@ type mp3Decoder struct {
 	frames      int64 // length in frames
 	bytesPerSec float64
 
-	r   *reader
-	d   *gomp3.Decoder
-	buf []byte
+	r    *reader
+	d    *gomp3.Decoder
+	buf  []byte
+	skip int // bytes of decoded sound to drop: the preroll of a seek
 }
 
 const frameBytes = 4 // go-mp3 decodes to 16-bit stereo
@@ -153,14 +154,20 @@ func (m *mp3Decoder) Read(dst []float32) (int, error) {
 		m.buf = make([]byte, n)
 	}
 	b := m.buf[:n]
-	for tries := 0; ; tries++ {
+	for tries := 0; ; {
 		got, err := io.ReadFull(m.d, b)
 		got -= got % frameBytes
-		for i := 0; i < got/2; i++ {
-			dst[i] = float32(int16(binary.LittleEndian.Uint16(b[2*i:]))) / (1 << 15)
+		drop := min(m.skip, got)
+		m.skip -= drop
+		pcm := b[drop:got]
+		for i := range len(pcm) / 2 {
+			dst[i] = float32(int16(binary.LittleEndian.Uint16(pcm[2*i:]))) / (1 << 15)
+		}
+		if len(pcm) > 0 {
+			return len(pcm) / 2, nil
 		}
 		if got > 0 {
-			return got / 2, nil
+			continue // all of it was preroll
 		}
 		if err == nil || err == io.ErrUnexpectedEOF || err == io.EOF {
 			return 0, io.EOF
@@ -168,6 +175,7 @@ func (m *mp3Decoder) Read(dst []float32) (int, error) {
 		if errors.Is(err, errClosed) || tries >= 8 {
 			return 0, err
 		}
+		tries++
 		// A broken frame: go on from the next good one.
 		off, _, serr := m.sync(m.r.off + 1)
 		if serr != nil {
@@ -179,11 +187,18 @@ func (m *mp3Decoder) Read(dst []float32) (int, error) {
 	}
 }
 
+// preroll is how many frames of sound a seek decodes before the one asked
+// for, and drops. An MP3 frame borrows bits from the frames before it, up
+// to 511 bytes back, and its sound overlaps theirs: the first few decoded
+// from the middle of a file are noise, as loud as the loudest sound.
+const preroll = 4 * 1152
+
 func (m *mp3Decoder) SetPosition(frame int64) error {
 	if m.rate == 0 {
 		return errors.New("player: not open")
 	}
-	sec := float64(frame) / float64(m.rate)
+	from := max(frame-preroll, 0)
+	sec := float64(from) / float64(m.rate)
 	off := m.audioStart + int64(sec*m.bytesPerSec)
 	if size := m.b.Size(); off >= size {
 		off = max(size-1, m.audioStart)
@@ -192,7 +207,11 @@ func (m *mp3Decoder) SetPosition(frame int64) error {
 	if err != nil {
 		return err
 	}
-	return m.openAt(at)
+	if err := m.openAt(at); err != nil {
+		return err
+	}
+	m.skip = int(frame-from) * frameBytes
+	return nil
 }
 
 func (m *mp3Decoder) Close() error {

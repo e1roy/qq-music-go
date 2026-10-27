@@ -25,7 +25,7 @@
 7. **接口字段要容错**：数值可能是数字或字符串（用 `flexInt`），简介含 HTML（用 `cleanIntro`），封面可能为空（要回退）。
 8. **不要提交隐私与生成物**：`cred.json`、`build/`、`.mygo/`、`mygo_windows_*.syso` 已在 `.gitignore` 中。`build/windows-amd64/resources.go` 是 `mygo build` 生成的，不要手改。
 9. **UI 身份**：不要把 `ui.Element` 存进 `app` 状态；元素每次构建都会失效。持久控件用 `.Bind(&handle)`，列表行用稳定的 `c.Key(...)`。
-10. **MyGo 版本**：钉在 `v0.6.4`。动 UI 代码前先查本地源码：`go list -m -f '{{.Dir}}' github.com/egoist/mygo`，读 `ui/doc.go` 与相关实现注释。本仓库另有 `.agents/skills/mygo-maintenance/SKILL.md`，其生命周期/身份/线程/测试规则优先。做重构时按 `.agents/skills/local-refactor/SKILL.md` 的流程与验证命令执行，方法论在其 `references/refactor-playbook.md`（原 `REFACTOR.md`）。
+10. **MyGo 版本**：钉在 `v0.7.1`。动 UI 代码前先查本地源码：`go list -m -f '{{.Dir}}' github.com/egoist/mygo`，读 `ui/doc.go` 与相关实现注释。本仓库另有 `.agents/skills/mygo-maintenance/SKILL.md`，其生命周期/身份/线程/测试规则优先。做重构时按 `.agents/skills/local-refactor/SKILL.md` 的流程与验证命令执行，方法论在其 `references/refactor-playbook.md`（原 `REFACTOR.md`）。
 11. **测试不能大量请求线上接口**：尤其是需要登录的接口（`SongURL` 的 `music.vkey.GetVkey`、用户歌单等），它们用的是真实账号。批量请求会触发限流（返回 `code 104009`），之后连正常歌曲都拿不到播放地址，客户端也跟着播不了，恢复时间未知。规则：
     - 一次验证只取几首（≤ 10）代表性歌曲，串行请求，不要并发，不要遍历排行榜、歌单或「我喜欢」逐首取播放地址。
     - 想统计音源格式（有没有 FLAC / 只有 AAC 等），只看歌曲信息里的 `File.Size*` 字段，不要逐首调 `SongURL`。
@@ -121,17 +121,19 @@ UI 线程：view(c) → 点击/快捷键 → app 方法 → a.do(work)
 - 歌单/榜单/专辑/歌手页的数据放在 `app.lists[page.key()]`；最近播放用 `recentView`。
 - 我喜欢是 `page{kind: pagePlaylist, dirid: 201}`，自己的歌单 `id` 可能为 0、用 `dirid` 打开。
 - 侧边栏只有一个「小宇宙」入口，按 `settings.XiaoyuzhouOfficial` 打开 `pagePodcast`（QQ 音乐内置）或 `pageXiaoyuzhou`（官方，新装的默认值，见 `newApp`）；两页标题都由 `podcastTitle` 画：右上角徽章显示「QQ音乐」/「官方」，右侧按钮调 `switchPodcasts`，它原地替换当前页（不入历史栈）并保存设置。
+- 设置是 `pageSettings`（左下角用户行右侧的齿轮进入）：左侧分区菜单 `settingsSections`、右侧按 `a.settingsTab` 显示分区，目前只有「缓存」。新增设置分区时往 `settingsSections` 加一项并在 `settingsPage` 里分发，不要再往音质弹窗之类的地方塞设置项。
 - 小宇宙官方（原 beta）是 `pageXiaoyuzhou`（页签：推荐/发现/订阅更新/我的订阅），节目页是 `pageXiaoyuzhouShow`（`mid` 为小宇宙 pid），分类页是 `pageXiaoyuzhouCategory`（`mid` 为分类 id）。它直连小宇宙官方接口（`internal/xiaoyuzhou`），和 QQ 音乐内置的 `pagePodcast` 无关；单集作为 `qqmusic.Song` 进队列，`Source == "xiaoyuzhou"`（v1.0.1 写的 `"xyz"` 读取时自动转换）、`URL` 为音频直链（付费单集 `URL` 为空，播放时调 `PrivateMediaURL`），播放不需要登录 QQ 音乐、不走 `SongURL`，也不能加入「我喜欢」。
 - 小宇宙是 `pagePodcast`；播客节目复用 `pageAlbum`（有 mid 用 mid，只有 id 时用 `id`），`AlbumInfo.IsPodcast()` 时按页加载单集（`PodcastPage`=30，滚到底再取），不要改回全量循环（有的节目上万集）。
-- `app.podcast.known` 里的专辑（播客）单集固定用 128k 播放，见 `playAt`：整集驻留内存，320k 一小时就是 144 MB。
+- `app.podcast.known` 里的专辑（播客）单集固定用 128k 播放，见 `playAt`：320k 一小时就是 144 MB；单集不进歌曲缓存。
 
 ### 5.4 一次播放的链路
 
 ```text
 playList / playAt
+  → player.Cache.Lookup(mid-quality)  // 歌曲缓存命中（且已登录）就不取播放地址
   → api.SongURL(song, quality)        // 需要登录；FLAC → 320k → 128k → AAC 逐级降级
-  → player.Load(url, duration)        // goroutine 中阻塞到文件开始下载（AAC 要下完）
-      → openBuffer(url)               // 内存缓冲 + 后台下载
+  → player.Load(Source, duration)     // goroutine 中阻塞到文件开始下载（AAC 要等到索引）
+      → openBuffer / openCached       // 边下边写进缓存目录的文件（无缓存或写盘失败时进内存）；命中时直接读文件
       → openDecoder(buffer, duration) // 按文件头：fLaC → flacDecoder，ftyp → aacDecoder，否则 mp3Decoder
       → audio.NewPlayer(decoder)
   → loadLyrics(song)                  // LRC + 翻译
@@ -165,6 +167,8 @@ playList / playAt
 | `xiaoyuzhou.json` | 小宇宙官方的登录（access/refresh token、设备 ID）与昵称；退出只清 token，设备 ID 保留；v1.0.1 写的 `xyz.json` 启动时改名迁移 | 扫码登录、token 刷新、退出 |
 | `queue.json` | 播放队列、当前位置、是否猜你喜欢电台（启动时恢复；没有它时回退为最近播放第一首） | 切歌、队列增删、清空（清空即删除文件） |
 | `crash.log` | 崩溃栈 | `debug.SetCrashOutput` |
+
+歌曲缓存不在上面的目录里，而在 `os.UserCacheDir()/QQMusicGo/songs`（即 `%LocalAppData%\QQMusicGo\songs`），由 `internal/player/cache.go` 管理：每次下载写一个 `<随机数>-<歌名>-<实际音质>-<类型>.audio`（如 `2701297910-医生-HQ 320k-mp3.audio`；类型取播放地址的扩展名，QQ 音乐的地址以 `M800….mp3`/`F000….flac`/`C400….m4a` 结尾；歌名经 `fileLabel` 去掉 Windows 不允许的字符并截到 60 字；小宇宙单集没有音质一段；文件名只在开始下载时定，之后不能改），下载完整后再写 `<mid>-<请求音质>.json`（记录文件名、大小和实际音质）。JSON 最后写，所以有 JSON 就说明文件完整；不靠改名，因为 Windows 上打开的文件不能改名。上限由 `settings.CacheGB` 决定（默认 2，0 为不保留；在「设置 → 缓存」里改，入口是左下角的齿轮），单首超过上限 1/4 不保留；超出上限时按最近使用（JSON 的修改时间）淘汰，正在打开的文件不删。播客单集（QQ 内置与小宇宙）也下到文件，但播完即删。
 
 文件权限：目录 `0700`，文件 `0600`。
 
@@ -253,7 +257,7 @@ playList / playAt
 ### 7.6 调试内存/卡顿
 
 - `QQMUSIC_PPROF=127.0.0.1:6060` 启动后访问 `/mem`；`/mem.json` 可取原始采样；`POST /mem/gc` 主动回收。
-- 播放一首歌会占用约歌曲大小的内存（`buffer` 全量保存）：MP3 约 4–12 MB，FLAC 约 25–60 MB（24-bit 更大）；AAC 解码时 Media Foundation 还会再拷一份。播放完成后 `trimmer` 延迟 3s 归还。
+- 有歌曲缓存时（正式运行都有），`buffer` 把文件写到磁盘再读回，歌曲本身不占 Go 堆，由系统文件缓存承担；只有没有缓存（测试里 `Player.Cache == nil`）或写盘失败时才整首放进内存（MP3 约 4–12 MB，FLAC 约 25–60 MB），按 `Content-Length` 预分配最多 `maxPrealloc`（32 MB）。播放完成后 `trimmer` 延迟 3s 归还。
 - 图片缓存上限 48 MiB，按最近使用帧淘汰；封面尺寸由 `cover` 的 `side` 决定（≤64 用 120px，否则 300px）。
 - 卡顿优先看是否在 `view` 中做了同步 IO，或列表 key 不稳定导致全量重建。
 
@@ -274,7 +278,9 @@ playList / playAt
 13. **不要手改生成物**：`build/`、`build/windows-amd64/resources.go`、`cmd/qqmusic/mygo_windows_*.syso`。
 14. **Windows 中文脚本**：`.bat` 使用 UTF-8 + `chcp 65001`，编辑时保持编码。
 15. **接口是非公开的**：字段可能随时变动；新增解析要允许空值，失败时走 `errText` 而不是 panic。
-16. **小宇宙官方的 m4a 边下边播**：实测 1h16m 的单集 0.15s 开播（索引在文件头）。整集仍驻留内存（60–120 MB）。小宇宙的 `/v1/episode-transcript/get` 对本客户端返回的是与节目无关的占位文字稿，不要接成歌词。
+16. **小宇宙官方的 m4a 边下边播**：实测 1h16m 的单集 0.15s 开播（索引在文件头）。整集写到缓存目录的临时文件（60–120 MB），不占 Go 堆，播完删除。小宇宙的 `/v1/episode-transcript/get` 对本客户端返回的是与节目无关的占位文字稿，不要接成歌词。
+17. **歌曲缓存命中不取播放地址**：键是 `mid-请求音质`（不是实际音质），实际音质存在 JSON 的 `note` 里，用来显示音质徽章。命中同样要求已登录（与 `SongURL` 一致）。不要缓存播放地址（约一天失效），只缓存文件。改 `buffer` 时保留两点：读到未下载处阻塞等待（AAC 的 `IStream` 依赖它）；下载完成时先写 JSON 再标记 `done`，否则刚下完就重播会查不到。
+18. **MP3 跳转要 preroll**：MP3 帧会借用前面帧的数据，从目标帧直接解码，开头几帧是很响的杂音。`mp3Decoder.SetPosition` 先退 `preroll`（4×1152 个样本）再解码，丢掉多出的部分；不要删，`TestMP3Seek` 会拦住。
 
 ## 9. MyGo 维护要点（摘自 `.agents/skills/mygo-maintenance/SKILL.md`）
 

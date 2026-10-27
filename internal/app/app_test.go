@@ -24,10 +24,11 @@ func (f *fakePlatform) OpenQQLogin(done func([]*cookie, error)) { go done(nil, e
 func (f *fakePlatform) OpenXiaoyuzhouLogin(done func(access, refresh string, err error)) {
 	go done("", "", errLoginClosed)
 }
-func (f *fakePlatform) Minimize()       {}
-func (f *fakePlatform) ToggleMaximize() {}
-func (f *fakePlatform) Maximized() bool { return false }
-func (f *fakePlatform) Close()          {}
+func (f *fakePlatform) Minimize()         {}
+func (f *fakePlatform) ToggleMaximize()   {}
+func (f *fakePlatform) Maximized() bool   { return false }
+func (f *fakePlatform) Close()            {}
+func (f *fakePlatform) OpenFolder(string) {}
 
 func newTestApp(t *testing.T) (*app, *ui.Tester, *fakePlatform) {
 	f := &fakePlatform{posts: make(chan func(), 1024)}

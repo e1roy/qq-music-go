@@ -1,4 +1,5 @@
 /build/
+/tmp/
 /.mygo/
 mygo_windows_*.syso
 

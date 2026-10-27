@@ -76,6 +76,79 @@ func TestSearch(t *testing.T) {
 	}
 }
 
+// TestSetSubscription: subscribing and unsubscribing ask the service for
+// the mode wanted.
+func TestSetSubscription(t *testing.T) {
+	var asked []map[string]any
+	s := &service{answer: func(path string, h http.Header, body map[string]any) (int, string) {
+		if path != "/v1/subscription/update" || h.Get("x-jike-access-token") != "access" {
+			return http.StatusBadRequest, `{"toast":"请求错误"}`
+		}
+		asked = append(asked, body)
+		return http.StatusOK, `{"success":true}`
+	}}
+	c := offline(Credential{AccessToken: "access", DeviceID: "device"}, s)
+	ctx := context.Background()
+	if err := c.SetSubscription(ctx, "p1", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetSubscription(ctx, "p1", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 2 || asked[0]["pid"] != "p1" || asked[0]["mode"] != "ON" || asked[1]["mode"] != "OFF" {
+		t.Fatalf("asked %v", asked)
+	}
+}
+
+// TestUser: a host's profile, counts and podcasts are read, and following
+// them asks for FOLLOWING, unfollowing for STRANGE.
+func TestUser(t *testing.T) {
+	var asked []map[string]any
+	s := &service{answer: func(path string, h http.Header, body map[string]any) (int, string) {
+		switch path {
+		case "/v1/profile/get":
+			return http.StatusOK, `{"success":true,"data":{"uid":"u1","nickname":"张三","bio":"长期主义","ipLoc":"北京","relation":"STRANGE"}}`
+		case "/v1/user-stats/get":
+			return http.StatusOK, `{"success":true,"data":{"followingCount":1,"followerCount":2,"subscriptionCount":3}}`
+		case "/v1/podcaster/owned-podcasts":
+			if body["uid"] != "u1" {
+				return http.StatusBadRequest, `{"toast":"请求错误"}`
+			}
+			return http.StatusOK, `{"success":true,"data":[{"pid":"p1","title":"知行小酒馆"}]}`
+		case "/v1/user-relation/update":
+			asked = append(asked, body)
+			return http.StatusOK, `{"success":true}`
+		}
+		return http.StatusBadRequest, `{"toast":"请求错误"}`
+	}}
+	c := offline(Credential{AccessToken: "access"}, s)
+	ctx := context.Background()
+	u, err := c.UserProfile(ctx, "u1")
+	if err != nil || u.Nickname != "张三" || u.Bio != "长期主义" || u.IPLoc != "北京" || u.Following() {
+		t.Fatalf("profile %+v %v", u, err)
+	}
+	stats, err := c.UserStats(ctx, "u1")
+	if err != nil || stats.FollowingCount != 1 || stats.FollowerCount != 2 || stats.SubscriptionCount != 3 {
+		t.Fatalf("stats %+v %v", stats, err)
+	}
+	pods, err := c.UserPodcasts(ctx, "u1")
+	if err != nil || len(pods) != 1 || pods[0].Title != "知行小酒馆" {
+		t.Fatalf("podcasts %+v %v", pods, err)
+	}
+	if err := c.SetFollowing(ctx, "u1", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetFollowing(ctx, "u1", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 2 || asked[0]["uid"] != "u1" || asked[0]["relation"] != "FOLLOWING" || asked[1]["relation"] != "STRANGE" {
+		t.Fatalf("asked %v", asked)
+	}
+	if len(s.paths) != 5 || s.paths[0] != "/v1/profile/get?uid=u1" || s.paths[1] != "/v1/user-stats/get?uid=u1" {
+		t.Errorf("paths %v", s.paths)
+	}
+}
+
 // TestRenew: a request turned away for its tokens renews them once, and
 // is made again with the new ones.
 func TestRenew(t *testing.T) {

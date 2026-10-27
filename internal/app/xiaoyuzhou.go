@@ -60,6 +60,7 @@ type xiaoyuzhouState struct {
 		eps   pager[xiaoyuzhou.Episode]
 	}
 	shows map[string]*xiaoyuzhouShow // the pages of podcasts, by pid
+	users map[string]*xiaoyuzhouUser // the pages of hosts, by uid
 }
 
 // The tabs of 小宇宙 官方.
@@ -109,7 +110,25 @@ type xiaoyuzhouShow struct {
 	web             bool
 	loaded, loading bool
 	err             string
+	subscribing     bool   // a subscription is on the way
+	subErr          string // why the last one failed
 	list            ui.ListState
+}
+
+// xiaoyuzhouUser is the page of a host: who they are, the podcasts they
+// make, and whether the account follows them.
+type xiaoyuzhouUser struct {
+	uid        string
+	user       xiaoyuzhou.User
+	stats      xiaoyuzhou.UserStats
+	shows      []xiaoyuzhou.Podcast
+	loaded     bool
+	loading    bool
+	err        string
+	following  bool // the account follows them
+	followBusy bool // a follow is on the way
+	followErr  string
+	scroll     ui.ScrollState
 }
 
 // savedXiaoyuzhou is what xiaoyuzhou.json keeps between runs.
@@ -172,6 +191,7 @@ func (a *app) loadXiaoyuzhou() {
 	x.api.OnRefresh = func(xiaoyuzhou.Credential) { a.plat.Post(a.saveXiaoyuzhou) }
 	x.user = sv.User
 	x.shows = map[string]*xiaoyuzhouShow{}
+	x.users = map[string]*xiaoyuzhouUser{}
 	x.cats = map[string]*xiaoyuzhouCategory{}
 }
 
@@ -220,6 +240,7 @@ func (a *app) logoutXiaoyuzhou() {
 	x.charts = [len(xiaoyuzhouCharts)]xiaoyuzhouChart{}
 	x.feed = xiaoyuzhouFeed{}
 	x.cats = map[string]*xiaoyuzhouCategory{}
+	x.users = map[string]*xiaoyuzhouUser{}
 	x.picks.reset()
 	x.inbox.reset()
 	x.subs.reset()
@@ -661,6 +682,118 @@ func (a *app) loadXiaoyuzhouShow(pid string, again bool) {
 				return
 			}
 			sh.info, sh.eps, sh.next, sh.web, sh.loaded = info, eps, next, web, true
+		}
+	})
+}
+
+// setXiaoyuzhouSubscription subscribes to a podcast of 小宇宙, or
+// unsubscribes from it, updating its page at once; the lists it changes load
+// again the next time they are shown.
+func (a *app) setXiaoyuzhouSubscription(pid string, on bool) {
+	x := &a.xiaoyuzhou
+	sh := x.shows[pid]
+	if sh == nil || sh.subscribing {
+		return
+	}
+	sh.subscribing, sh.subErr = true, ""
+	a.do(func(ctx context.Context) func() {
+		err := x.api.SetSubscription(ctx, pid, on)
+		return func() {
+			if x.shows[pid] == sh {
+				sh.subscribing = false
+			}
+			if err != nil {
+				msg := a.xiaoyuzhouErr(err)
+				if x.shows[pid] == sh {
+					sh.subErr = "操作失败：" + msg
+				}
+				return
+			}
+			if x.shows[pid] == sh {
+				sh.info.SubscriptionStatus = "OFF"
+				if on {
+					sh.info.SubscriptionStatus = "ON"
+					sh.info.SubscriptionCount++
+				} else if sh.info.SubscriptionCount > 0 {
+					sh.info.SubscriptionCount--
+				}
+			}
+			// 我的订阅 and 订阅更新 are out of date now.
+			x.subs.reset()
+			x.inbox.reset()
+		}
+	})
+}
+
+// loadXiaoyuzhouUser loads the page of a host, the first time, or again.
+func (a *app) loadXiaoyuzhouUser(uid string, again bool) {
+	x := &a.xiaoyuzhou
+	us := x.users[uid]
+	if us == nil || again && !us.loading {
+		us = &xiaoyuzhouUser{uid: uid}
+		x.users[uid] = us
+	}
+	if us.loading || us.loaded {
+		return
+	}
+	us.loading, us.err = true, ""
+	a.do(func(ctx context.Context) func() {
+		u, err := x.api.UserProfile(ctx, uid)
+		var stats xiaoyuzhou.UserStats
+		var shows []xiaoyuzhou.Podcast
+		if err == nil {
+			// Neither the counts nor the podcasts are worth failing the
+			// page for.
+			stats, _ = x.api.UserStats(ctx, uid)
+			shows, _ = x.api.UserPodcasts(ctx, uid)
+		}
+		return func() {
+			if x.users[uid] != us {
+				return
+			}
+			us.loading = false
+			if err != nil {
+				us.err = a.xiaoyuzhouErr(err)
+				return
+			}
+			if u.UID == "" {
+				u.UID = uid
+			}
+			us.user, us.stats, us.shows = u, stats, shows
+			us.following = u.Following()
+			us.loaded = true
+		}
+	})
+}
+
+// setXiaoyuzhouFollowing follows a host of 小宇宙, or unfollows them,
+// updating their page at once.
+func (a *app) setXiaoyuzhouFollowing(uid string, on bool) {
+	x := &a.xiaoyuzhou
+	us := x.users[uid]
+	if us == nil || us.followBusy {
+		return
+	}
+	us.followBusy, us.followErr = true, ""
+	a.do(func(ctx context.Context) func() {
+		err := x.api.SetFollowing(ctx, uid, on)
+		return func() {
+			if x.users[uid] != us {
+				return
+			}
+			us.followBusy = false
+			if err != nil {
+				us.followErr = "操作失败：" + a.xiaoyuzhouErr(err)
+				return
+			}
+			us.following = on
+			us.user.Relation = "STRANGE"
+			if on {
+				us.user.Relation = "FOLLOWING"
+				us.stats.FollowerCount++
+			} else if us.stats.FollowerCount > 0 {
+				us.stats.FollowerCount--
+			}
 		}
 	})
 }

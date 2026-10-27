@@ -480,27 +480,42 @@ func moreRow(c *ui.Context, more func()) {
 	}
 }
 
-// xiaoyuzhouEpisodes shows episodes as rows; pod is their podcast when
-// they do not say. ranked numbers them as a chart.
+// xiaoyuzhouEpisodes shows episodes as a table inside a scrolled page; pod
+// is their podcast when they do not say. ranked numbers them as a chart.
+// The page's padding is undone, as the rows are inset like those of
+// songTable, which pages without a scroll draw from the panel's edge.
 func (a *app) xiaoyuzhouEpisodes(c *ui.Context, eps []xiaoyuzhou.Episode, pod *xiaoyuzhou.Podcast, ranked bool) {
 	if len(eps) == 0 {
 		return
 	}
-	ui.Column(c).Margin(0, -16).Children(func() {
+	ui.Column(c).Margin(0, -pagePadX).Children(func() {
+		a.xiaoyuzhouEpisodeTitles(c)
 		for i := range eps {
 			a.xiaoyuzhouEpisodeRow(c, eps, i, pod, ranked)
 		}
 	})
 }
 
-// xiaoyuzhouEpisodeRow is episode i of eps: its cover, title, podcast and
-// date, plays and length. A double click plays eps from it.
+// xiaoyuzhouEpisodeTitles is the head of the episodes, as columnTitles.
+func (a *app) xiaoyuzhouEpisodeTitles(c *ui.Context) {
+	tableHead(c, func() {
+		headText(c, "#").Width(32).TextAlign(ui.End)
+		headText(c, "单集").Grow(3).Basis(0)
+		headText(c, "节目").Grow(2).Basis(0)
+		headText(c, "发布日期").Width(88)
+		headText(c, "播放").Width(64).TextAlign(ui.End)
+		headClock(c)
+	})
+}
+
+// xiaoyuzhouEpisodeRow is episode i of eps: its cover, title, podcast, date,
+// plays and length. A double click plays eps from it.
 func (a *app) xiaoyuzhouEpisodeRow(c *ui.Context, eps []xiaoyuzhou.Episode, i int, pod *xiaoyuzhou.Podcast, ranked bool) {
 	e := eps[i]
 	s := episodeSong(e, pod)
 	playing := a.isPlaying(s)
 	play := func() { a.playList(episodeSongs(eps, pod), i) }
-	row := ui.Row(c.Key(e.Eid+fmt.Sprint(i))).Padding(8, 16).Gap(14).Radius(radiusMd).AlignItems(ui.Center)
+	row := ui.Row(c.Key(e.Eid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine)
 	hover := row.Hovered()
 	switch {
 	case hover:
@@ -509,7 +524,7 @@ func (a *app) xiaoyuzhouEpisodeRow(c *ui.Context, eps []xiaoyuzhou.Episode, i in
 		row.Background(ui.RGBA(255, 255, 255, 0.035))
 	}
 	row.Children(func() {
-		ui.Box(c).Width(28).AlignItems(ui.End).Children(func() {
+		ui.Box(c).Width(32).AlignItems(ui.End).Children(func() {
 			switch {
 			case hover:
 				ic := icPlay
@@ -532,9 +547,9 @@ func (a *app) xiaoyuzhouEpisodeRow(c *ui.Context, eps []xiaoyuzhou.Episode, i in
 				}
 			}
 		})
-		a.cover(c, s.Pic, 44, radiusSm)
-		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(3).Children(func() {
-			ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Children(func() {
+		ui.Row(c).Grow(3).Basis(0).MinWidth(0).Gap(12).AlignItems(ui.Center).Children(func() {
+			a.cover(c, s.Pic, 36, radiusSm)
+			ui.Row(c).Grow(1).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
 				t := ui.Text(c, e.Title).FontSize(14).FontWeight(500).SingleLine().MinWidth(0).Shrink(1).Tooltip(e.Title)
 				if playing {
 					t.TextColor(colAccent)
@@ -543,22 +558,19 @@ func (a *app) xiaoyuzhouEpisodeRow(c *ui.Context, eps []xiaoyuzhou.Episode, i in
 					badge(c, "付费", colVIP).FontSize(10)
 				}
 			})
-			ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Children(func() {
-				if s.Album.Name != "" {
-					a.albumLink(c, s, 12).Shrink(1)
-				}
-				if !e.PubDate.IsZero() {
-					ui.Text(c, e.PubDate.Local().Format("2006-01-02")).FontSize(12).TextColor(colDim).FontFeatures("tnum").NoWrap()
-				}
-			})
 		})
-		ui.Row(c).Width(72).Gap(4).Justify(ui.End).AlignItems(ui.Center).Children(func() {
-			if e.PlayCount > 0 {
-				ui.Icon(c, icHeadset).FontSize(12).TextColor(colMuted)
-				ui.Text(c, formatCount(e.PlayCount)).FontSize(13).TextColor(colMuted).FontFeatures("tnum").NoWrap()
-			}
-		})
-		ui.Text(c, s.Duration()).Width(64).TextAlign(ui.End).FontSize(13).TextColor(colMuted).FontFeatures("tnum")
+		a.albumLink(c, s, 13).Grow(2).Basis(0)
+		date := ""
+		if !e.PubDate.IsZero() {
+			date = e.PubDate.Local().Format("2006-01-02")
+		}
+		ui.Text(c, date).Width(88).FontSize(13).TextColor(colMuted).FontFeatures("tnum").SingleLine()
+		plays := ""
+		if e.PlayCount > 0 {
+			plays = formatCount(e.PlayCount)
+		}
+		ui.Text(c, plays).Width(64).TextAlign(ui.End).FontSize(13).TextColor(colMuted).FontFeatures("tnum").SingleLine()
+		ui.Text(c, s.Duration()).Width(48).TextAlign(ui.End).FontSize(13).TextColor(colMuted).FontFeatures("tnum")
 	})
 	if row.DoubleClicked() {
 		play()
@@ -639,14 +651,14 @@ func (a *app) xiaoyuzhouShowPage(c *ui.Context, p page) {
 		return
 	}
 	n := len(sh.eps)
-	ui.List(c, &sh.list, 1+n+1, func(i int) {
+	ui.List(c, &sh.list, 2+n+1, func(i int) {
 		switch {
 		case i == 0:
 			a.xiaoyuzhouShowHeader(c, p, sh)
-		case i <= n:
-			ui.Column(c.Key(i)).Padding(0, 8).Children(func() {
-				a.xiaoyuzhouEpisodeRow(c, sh.eps, i-1, &sh.info, false)
-			})
+		case i == 1:
+			a.xiaoyuzhouEpisodeTitles(c)
+		case i-2 < n:
+			a.xiaoyuzhouEpisodeRow(c, sh.eps, i-2, &sh.info, false)
 		default:
 			ui.Column(c).Padding(8, 24).Children(func() {
 				switch {
@@ -667,7 +679,7 @@ func (a *app) xiaoyuzhouShowPage(c *ui.Context, p page) {
 func (a *app) xiaoyuzhouShowHeader(c *ui.Context, p page, sh *xiaoyuzhouShow) {
 	info := &sh.info
 	a.tint.aim(c, a.pageTint(info.Image.URL(300)))
-	ui.Column(c).Gap(16).Padding(12, 24, 16, 24).Children(func() {
+	ui.Column(c).Gap(16).Padding(12, pagePadX, 16, pagePadX).Children(func() {
 		ui.Row(c).Gap(20).AlignItems(ui.End).Children(func() {
 			a.cover(c, info.Image.URL(300), 168, radiusXl).Shadow(0, 8, 24, 0, colShadow)
 			ui.Column(c).Grow(1).MinWidth(0).Gap(8).Children(func() {
@@ -698,15 +710,143 @@ func (a *app) xiaoyuzhouShowHeader(c *ui.Context, p page, sh *xiaoyuzhouShow) {
 					meta = append(meta, formatCount(info.SubscriptionCount)+" 人订阅")
 				}
 				ui.Text(c, strings.Join(meta, " · ")).FontSize(13).TextColor(colMuted)
+				var hosts []xiaoyuzhou.User
+				for _, u := range info.Podcasters {
+					if u.UID != "" {
+						hosts = append(hosts, u)
+					}
+				}
+				if !sh.web && len(hosts) > 0 && a.xiaoyuzhou.api.LoggedIn() {
+					ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, "主播").FontSize(12).TextColor(colSubtle)
+						for _, u := range hosts {
+							a.xiaoyuzhouUserChip(c, u)
+						}
+					})
+				}
 			})
 		})
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			if button(c, primary, icPlay, "播放全部").Clicked() && len(sh.eps) > 0 {
 				a.playList(episodeSongs(sh.eps, info), 0)
 			}
-			if sh.loading {
+			// A page of the web site knows nothing of a subscription, and
+			// there is no login to make one with.
+			if !sh.web && a.xiaoyuzhou.api.LoggedIn() {
+				if info.Subscribed() {
+					if button(c, secondary, icCheck, "已订阅").Tooltip("取消订阅").Clicked() && !sh.subscribing {
+						a.setXiaoyuzhouSubscription(p.mid, false)
+					}
+				} else if button(c, outline, icPlus, "订阅").Clicked() && !sh.subscribing {
+					a.setXiaoyuzhouSubscription(p.mid, true)
+				}
+			}
+			if sh.loading || sh.subscribing {
 				ui.Spinner(c).Size(16, 16)
 			}
 		})
+		if sh.subErr != "" {
+			ui.Text(c, sh.subErr).FontSize(13).TextColor(colDanger)
+		}
 	})
+}
+
+// xiaoyuzhouUserChip is a host of a podcast, which opens their page.
+func (a *app) xiaoyuzhouUserChip(c *ui.Context, u xiaoyuzhou.User) {
+	chip := ui.Row(c.Key(u.UID)).Gap(6).Padding(2, 8, 2, 4).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	if chip.Hovered() {
+		chip.Background(colGhost)
+	}
+	chip.Children(func() {
+		a.cover(c, u.Avatar.Picture.URL(150), 22, 11)
+		ui.Text(c, u.Nickname).FontSize(13).MaxLines(1)
+	})
+	if chip.Clicked() {
+		a.navigate(page{kind: pageXiaoyuzhouUser, mid: u.UID, title: u.Nickname})
+	}
+}
+
+// xiaoyuzhouUserPage is a host: who they are, and the podcasts they make.
+func (a *app) xiaoyuzhouUserPage(c *ui.Context, p page) {
+	if !a.xiaoyuzhou.api.LoggedIn() {
+		a.pageScroll(c, &ui.ScrollState{}, tintNone, func() {
+			ui.Text(c, "登录小宇宙后可查看主播").FontSize(14).TextColor(colMuted).Padding(24, 8)
+		})
+		return
+	}
+	us := a.xiaoyuzhou.users[p.mid]
+	if us == nil || !us.loaded {
+		if us != nil && us.err != "" {
+			a.pageScroll(c, &us.scroll, tintNone, func() {
+				errorRow(c, us.err, func() { a.loadXiaoyuzhouUser(p.mid, true) })
+			})
+		} else {
+			a.listSkeleton(c, page{kind: pageSinger})
+		}
+		return
+	}
+	name := us.user.Nickname
+	if name == "" {
+		name = p.title
+	}
+	a.pageScroll(c, &us.scroll, a.pageTint(us.user.Avatar.Picture.URL(300)), func() {
+		ui.Row(c).Gap(24).AlignItems(ui.Center).Children(func() {
+			a.cover(c, us.user.Avatar.Picture.URL(300), 120, 60)
+			ui.Column(c).Grow(1).MinWidth(0).Gap(8).Children(func() {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, name).FontSize(28).FontWeight(700).LetterSpacing(-0.6).MaxLines(1)
+					if us.user.IPLoc != "" {
+						badge(c, "IP 属地 "+us.user.IPLoc, colMuted)
+					}
+				})
+				if us.user.Bio != "" {
+					ui.Text(c, strings.ReplaceAll(us.user.Bio, "\n", " ")).FontSize(13).TextColor(colMuted).MaxLines(3).Tooltip(us.user.Bio)
+				}
+				var meta []string
+				if us.stats.FollowingCount > 0 {
+					meta = append(meta, formatCount(us.stats.FollowingCount)+" 关注")
+				}
+				if us.stats.FollowerCount > 0 {
+					meta = append(meta, formatCount(us.stats.FollowerCount)+" 粉丝")
+				}
+				if us.stats.SubscriptionCount > 0 {
+					meta = append(meta, formatCount(us.stats.SubscriptionCount)+" 订阅")
+				}
+				if len(meta) > 0 {
+					ui.Text(c, strings.Join(meta, " · ")).FontSize(13).TextColor(colMuted)
+				}
+				a.xiaoyuzhouFollowRow(c, us)
+			})
+		})
+		heading(c, "TA 的节目")
+		if len(us.shows) == 0 {
+			ui.Text(c, "暂无节目").FontSize(13).TextColor(colMuted)
+		} else {
+			a.xiaoyuzhouShowGrid(c, us.shows, nil)
+		}
+	})
+}
+
+// xiaoyuzhouFollowRow follows, or unfollows, the host of the page. A page
+// without a uid is no host's, and the account's own page is not followed.
+func (a *app) xiaoyuzhouFollowRow(c *ui.Context, us *xiaoyuzhouUser) {
+	x := &a.xiaoyuzhou
+	if !x.api.LoggedIn() || us.uid == "" || us.uid == x.user.UID {
+		return
+	}
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		if us.following {
+			if button(c, secondary, icCheck, "已关注").Tooltip("取消关注").Clicked() && !us.followBusy {
+				a.setXiaoyuzhouFollowing(us.uid, false)
+			}
+		} else if button(c, outline, icPlus, "关注").Clicked() && !us.followBusy {
+			a.setXiaoyuzhouFollowing(us.uid, true)
+		}
+		if us.followBusy {
+			ui.Spinner(c).Size(16, 16)
+		}
+	})
+	if us.followErr != "" {
+		ui.Text(c, us.followErr).FontSize(13).TextColor(colDanger)
+	}
 }

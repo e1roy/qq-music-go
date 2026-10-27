@@ -164,6 +164,7 @@ type app struct {
 	queue        playqueue.Queue
 	radioLoading bool
 	playGen      int // changes as another song loads, to drop what the one before got
+	songTrack    int // how far the bar's track of songs went: up one for the next song, down one for the one before
 	playErr      string
 	failStreak   int             // the songs that failed in a row
 	downloaded   bool            // the song playing finished downloading

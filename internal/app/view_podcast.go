@@ -298,14 +298,13 @@ func (a *app) showPage(c *ui.Context, p page, l *songList) {
 
 // episodeTitles is the head of a podcast's episodes, as columnTitles.
 func (a *app) episodeTitles(c *ui.Context) {
-	ui.Row(c).Height(40).Margin(0, 24).Padding(0, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine).Children(func() {
-		muted := func(s string) ui.Element { return ui.Text(c, s).FontSize(13).FontWeight(500).TextColor(colMuted) }
-		muted("#").Width(40).TextAlign(ui.End)
-		muted("单集").Grow(1).Basis(0)
-		muted("发布日期").Width(88)
-		muted("播放").Width(64).TextAlign(ui.End)
+	tableHead(c, func() {
+		headText(c, "#").Width(32).TextAlign(ui.End)
+		headText(c, "单集").Grow(1).Basis(0)
+		headText(c, "发布日期").Width(88)
+		headText(c, "播放").Width(64).TextAlign(ui.End)
 		ui.Box(c).Width(32)
-		ui.Box(c).Width(64).AlignItems(ui.End).Children(func() { ui.Icon(c, icClock).FontSize(14).TextColor(colMuted) })
+		headClock(c)
 	})
 }
 
@@ -315,7 +314,7 @@ func (a *app) episodeRow(c *ui.Context, l *songList, i int) {
 	e := l.eps[i]
 	s := e.Song
 	playing := a.isPlaying(s)
-	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, 24).Padding(10, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine)
+	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine)
 	hover := row.Hovered()
 	switch {
 	case hover:
@@ -324,7 +323,7 @@ func (a *app) episodeRow(c *ui.Context, l *songList, i int) {
 		row.Background(ui.RGBA(255, 255, 255, 0.035))
 	}
 	row.Children(func() {
-		ui.Box(c).Width(40).AlignItems(ui.End).Children(func() {
+		ui.Box(c).Width(32).AlignItems(ui.End).Children(func() {
 			switch {
 			case hover:
 				ic := icPlay
@@ -348,14 +347,17 @@ func (a *app) episodeRow(c *ui.Context, l *songList, i int) {
 				ui.Text(c, fmt.Sprint(n)).FontSize(13).TextColor(colMuted).FontFeatures("tnum")
 			}
 		})
-		ui.Row(c).Grow(1).Basis(0).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
-			t := ui.Text(c, s.DisplayName()).FontSize(14).FontWeight(500).SingleLine().MinWidth(0).Shrink(1).Tooltip(s.DisplayName())
-			if playing {
-				t.TextColor(colAccent)
-			}
-			if s.VIP() && !a.user.VIP {
-				badge(c, "VIP", colVIP).FontSize(10)
-			}
+		ui.Row(c).Grow(1).Basis(0).MinWidth(0).Gap(12).AlignItems(ui.Center).Children(func() {
+			a.cover(c, s.Cover(150), 36, radiusSm)
+			ui.Row(c).Grow(1).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
+				t := ui.Text(c, s.DisplayName()).FontSize(14).FontWeight(500).SingleLine().MinWidth(0).Shrink(1).Tooltip(s.DisplayName())
+				if playing {
+					t.TextColor(colAccent)
+				}
+				if s.VIP() && !a.user.VIP {
+					badge(c, "VIP", colVIP).FontSize(10)
+				}
+			})
 		})
 		ui.Text(c, e.UploadTime).Width(88).FontSize(13).TextColor(colMuted).FontFeatures("tnum").SingleLine()
 		plays := ""
@@ -375,7 +377,7 @@ func (a *app) episodeRow(c *ui.Context, l *songList, i int) {
 				}
 			}
 		})
-		ui.Text(c, s.Duration()).Width(64).TextAlign(ui.End).FontSize(13).TextColor(colMuted).FontFeatures("tnum")
+		ui.Text(c, s.Duration()).Width(48).TextAlign(ui.End).FontSize(13).TextColor(colMuted).FontFeatures("tnum")
 	})
 	if row.DoubleClicked() {
 		a.playList(l.songs, i)

@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -12,6 +14,48 @@ import (
 
 	"qqmusic/internal/xiaoyuzhou"
 )
+
+// apiAnswer answers the calls a podcast and a host page make, keeping the
+// modes and relations asked for. Playing a paid episode asks for its URL
+// too, which is not answered here.
+type apiAnswer struct {
+	modes     []string
+	relations []string
+}
+
+func (s *apiAnswer) RoundTrip(req *http.Request) (*http.Response, error) {
+	reply := func(body string) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    req,
+		}, nil
+	}
+	switch req.URL.Path {
+	case "/v1/subscription/update":
+		var body struct {
+			Mode string `json:"mode"`
+		}
+		json.NewDecoder(req.Body).Decode(&body)
+		s.modes = append(s.modes, body.Mode)
+		return reply(`{"success":true,"data":null}`)
+	case "/v1/user-relation/update":
+		var body struct {
+			Relation string `json:"relation"`
+		}
+		json.NewDecoder(req.Body).Decode(&body)
+		s.relations = append(s.relations, body.Relation)
+		return reply(`{"success":true,"data":null}`)
+	case "/v1/profile/get":
+		return reply(`{"success":true,"data":{"uid":"u1","nickname":"张三","bio":"长期主义","ipLoc":"北京","relation":"STRANGE"}}`)
+	case "/v1/user-stats/get":
+		return reply(`{"success":true,"data":{"followingCount":1,"followerCount":10,"subscriptionCount":2}}`)
+	case "/v1/podcaster/owned-podcasts":
+		return reply(`{"success":true,"data":[{"pid":"p1","title":"知行小酒馆","author":"有知有行","episodeCount":274,"image":{"smallPicUrl":"https://image.xyzcdn.net/a.jpg@small"}}]}`)
+	}
+	return nil, errors.New("offline")
+}
 
 // TestXiaoyuzhou shows 小宇宙 官方 from what it would load, logged out and
 // in, a category's and a podcast's page, and plays an episode, which needs
@@ -59,7 +103,7 @@ func TestXiaoyuzhou(t *testing.T) {
 
 	// Logged in, what it loaded shows, and nothing more loads.
 	x.api = xiaoyuzhou.New(xiaoyuzhou.Credential{AccessToken: "token", RefreshToken: "refresh"})
-	x.user = xiaoyuzhou.User{Nickname: "听众"}
+	x.user = xiaoyuzhou.User{UID: "me", Nickname: "听众"}
 	pod := xiaoyuzhou.Podcast{Pid: "p1", Title: "知行小酒馆", Author: "有知有行", EpisodeCount: 274, SubscriptionCount: 2159868}
 	eps := []xiaoyuzhou.Episode{
 		{Eid: "e1", Pid: "p1", Title: "E255 越努力越幸运", Duration: 4167, PlayCount: 202684, PayType: "FREE",
@@ -177,8 +221,94 @@ func TestXiaoyuzhou(t *testing.T) {
 	}
 	shot(t, tt, "xiaoyuzhou-show")
 
-	// With more to come, the end loads them once it shows, unasked.
+	// A page of the API knows whether the account subscribes, and says so
+	// once it changes: the lists it makes stale load again.
 	sh := x.shows["p1"]
+	sh.web, sh.info.Podcasters = false, []xiaoyuzhou.User{{UID: "u1", Nickname: "张三"}}
+	answer := &apiAnswer{}
+	x.api.HTTP = &http.Client{Transport: answer}
+	tt.Frame()
+	shot(t, tt, "xiaoyuzhou-show-api")
+	if err := tt.Click("订阅"); err != nil {
+		t.Fatal(err)
+	}
+	if !settle(tt, f, 5*time.Second, func() bool { return !sh.subscribing }) {
+		t.Fatal("subscribing did not finish")
+	}
+	if !sh.info.Subscribed() || sh.info.SubscriptionCount != pod.SubscriptionCount+1 || x.subs.pages != 0 || x.inbox.pages != 0 {
+		t.Errorf("subscribed %q %d, pages %d %d", sh.info.SubscriptionStatus, sh.info.SubscriptionCount, x.subs.pages, x.inbox.pages)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("已订阅"); !ok {
+		t.Errorf("subscribed: %q", tt.Texts())
+	}
+	if err := tt.Click("已订阅"); err != nil {
+		t.Fatal(err)
+	}
+	if !settle(tt, f, 5*time.Second, func() bool { return !sh.subscribing }) {
+		t.Fatal("unsubscribing did not finish")
+	}
+	if sh.info.Subscribed() || sh.info.SubscriptionCount != pod.SubscriptionCount || len(answer.modes) != 2 || answer.modes[0] != "ON" || answer.modes[1] != "OFF" {
+		t.Errorf("unsubscribed %q %d, asked %v", sh.info.SubscriptionStatus, sh.info.SubscriptionCount, answer.modes)
+	}
+
+	// A host has a page of their own: who they are, and 关注, which asks the
+	// service for the relation.
+	tt.Frame()
+	if err := tt.Click("张三"); err != nil {
+		t.Fatal(err)
+	}
+	if p := a.current(); p.kind != pageXiaoyuzhouUser || p.mid != "u1" {
+		t.Fatalf("host page %+v", p)
+	}
+	us := x.users["u1"]
+	if !settle(tt, f, 5*time.Second, func() bool { return us != nil && us.loaded }) {
+		t.Fatal("the host did not load")
+	}
+	if us.user.Bio != "长期主义" || us.user.IPLoc != "北京" || us.stats.FollowerCount != 10 || len(us.shows) != 1 || us.shows[0].Title != "知行小酒馆" {
+		t.Errorf("host %+v", us)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("关注"); !ok {
+		t.Errorf("host: %q", tt.Texts())
+	}
+	if err := tt.Click("关注"); err != nil {
+		t.Fatal(err)
+	}
+	if !settle(tt, f, 5*time.Second, func() bool { return !us.followBusy }) {
+		t.Fatal("following did not finish")
+	}
+	if !us.following || us.user.Relation != "FOLLOWING" || us.stats.FollowerCount != 11 || len(answer.relations) != 1 || answer.relations[0] != "FOLLOWING" {
+		t.Errorf("followed %v, %d fans, asked %v", us.following, us.stats.FollowerCount, answer.relations)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("已关注"); !ok {
+		t.Errorf("followed: %q", tt.Texts())
+	}
+	shot(t, tt, "xiaoyuzhou-user")
+	if err := tt.Click("已关注"); err != nil {
+		t.Fatal(err)
+	}
+	if !settle(tt, f, 5*time.Second, func() bool { return !us.followBusy }) {
+		t.Fatal("unfollowing did not finish")
+	}
+	if us.following || us.stats.FollowerCount != 10 || len(answer.relations) != 2 || answer.relations[1] != "STRANGE" {
+		t.Errorf("unfollowed %v, %d fans, asked %v", us.following, us.stats.FollowerCount, answer.relations)
+	}
+
+	// Opened without a uid the page is no host's: there is no one to follow.
+	x.users[""] = &xiaoyuzhouUser{loaded: true}
+	a.navigate(page{kind: pageXiaoyuzhouUser})
+	tt.Frame()
+	if _, ok := tt.Find("关注"); ok {
+		t.Errorf("no host, but 关注: %q", tt.Texts())
+	}
+	a.back()
+	tt.Frame()
+	a.back()
+	tt.Frame()
+
+	// With more to come, the end loads them once it shows, unasked.
 	sh.web, sh.next = false, xiaoyuzhou.Cursor(`{"id":"e2"}`)
 	x.api.HTTP = &http.Client{Transport: offline{}}
 	for i := 0; i < 3 && !sh.loading; i++ {

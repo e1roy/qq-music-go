@@ -123,7 +123,7 @@ func chipsSkeleton(c *ui.Context) {
 // songRowsSkeleton stands for songRow, below columnTitles.
 func songRowsSkeleton(c *ui.Context, n int) {
 	for i := range n {
-		ui.Row(c).Margin(0, 24).Padding(6, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine).Children(func() {
+		ui.Row(c).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine).Children(func() {
 			ui.Box(c).Width(32).AlignItems(ui.End).Children(func() { bone(c).Size(14, 12).Radius(3) })
 			ui.Row(c).Grow(3).Basis(0).MinWidth(0).Gap(12).AlignItems(ui.Center).Children(func() {
 				bone(c).Size(36, 36).Radius(radiusSm)
@@ -141,7 +141,7 @@ func songRowsSkeleton(c *ui.Context, n int) {
 func (a *app) listSkeleton(c *ui.Context, p page) {
 	ui.Column(c).Grow(1).Clip().Children(func() {
 		skeleton(c, func() {
-			ui.Row(c).Gap(20).Padding(12, 24, 16, 24).AlignItems(ui.End).Children(func() {
+			ui.Row(c).Gap(20).Padding(12, pagePadX, 16, pagePadX).AlignItems(ui.End).Children(func() {
 				r := float32(radiusXl)
 				if p.kind == pageSinger {
 					r = 84

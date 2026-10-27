@@ -84,6 +84,23 @@ func queueState(a *app) (string, int) {
 	return strings.Join(mids, " "), a.queue.Cur()
 }
 
+// TestSongWay checks that the bar slides the song in from the side the
+// change came from: the next one from the right, the one before from the
+// left.
+func TestSongWay(t *testing.T) {
+	a, _ := newOfflineApp(t, t.TempDir())
+	setQueue(a, episodes("a", "b"), 1)
+	at := a.songTrack
+	a.prev()
+	if a.songTrack != at-1 {
+		t.Fatalf("track %d after 上一首, want %d", a.songTrack, at-1)
+	}
+	a.next(false)
+	if a.songTrack != at {
+		t.Fatalf("track %d after 下一首, want %d", a.songTrack, at)
+	}
+}
+
 func TestQueueEdits(t *testing.T) {
 	dir := t.TempDir()
 	a, _ := newOfflineApp(t, dir)

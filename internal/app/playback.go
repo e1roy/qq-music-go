@@ -108,11 +108,18 @@ func (a *app) clearQueue() {
 	a.saveQueue()
 }
 
-// playAt plays song i of the queue.
-func (a *app) playAt(i int) {
+// playAt plays song i of the queue, the bar sliding it in from the right,
+// as the next song comes.
+func (a *app) playAt(i int) { a.playWay(i, 1) }
+
+// playWay plays song i of the queue, the bar sliding it in from way: 1 from
+// the right and -1 from the left, so that the song before and the one after
+// read apart.
+func (a *app) playWay(i, way int) {
 	if !a.queue.Select(i) {
 		return
 	}
+	a.songTrack += way
 	a.saveQueue()
 	if a.queue.NearEnd() {
 		a.moreRadio()
@@ -285,7 +292,7 @@ func (a *app) prev() {
 		a.player.Seek(0)
 		return
 	}
-	a.playAt(a.queue.Prev(a.set.Mode))
+	a.playWay(a.queue.Prev(a.set.Mode), -1)
 }
 
 // tick follows the player: the next song at the end of one, and the

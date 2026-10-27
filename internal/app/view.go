@@ -52,6 +52,11 @@ const (
 	topHeight    = 52  // the title bar at the top of the page
 	tintHeight   = 360 // how far down the page's color fades out
 	queueWidth   = 340 // the queue, a column on the right of the panel
+
+	// pagePadX is how far a page's content is inset from the panel's edge.
+	// The title bar and the table rows, which are drawn at that edge, use it
+	// too, so that they line up with the pages' own padding.
+	pagePadX = 24
 )
 
 func theme() *ui.Theme {
@@ -607,22 +612,63 @@ func toggle(c *ui.Context, label string, on bool) ui.Element {
 
 // tabs is shadcn's Tabs list: the labels in a gray track, the one chosen
 // raised; filling its parent's width, the labels share it. A click calls
-// choose after the build.
+// choose after the build. The raised box slides from the label chosen before
+// to the one chosen now, so a switch reads as one box crossing the track
+// rather than one blinking out and another in.
 func tabs(c *ui.Context, selected int, fill bool, choose func(int), labels ...string) {
-	list := ui.Row(c).Height(32).Padding(3).Radius(radiusLg).Background(colHover).Gap(2).AlignItems(ui.Stretch)
+	const pad, gap, side = 3, 2, 12 // the track's padding and gap, the labels' side padding
+	n := len(labels)
+	list := ui.Row(c).Height(32).Padding(pad).Radius(radiusLg).Background(colHover).Gap(gap).AlignItems(ui.Stretch)
 	if fill {
 		list.FillWidth()
 	}
+	// Where each label's box starts, and how wide it is, in the track's
+	// padding box. Labels sharing the track's width divide its rect at paint
+	// time; the others are as wide as their text and side padding. The text
+	// width is measured as the label lays it out, so the box lands on it.
+	var lefts, widths []float32
+	if !fill {
+		lefts, widths = make([]float32, n), make([]float32, n)
+		start := float32(0)
+		for i, name := range labels {
+			w, _ := c.MeasureText(0, ui.Span{Text: name, Size: 13, Weight: 500})
+			widths[i] = w + 2*side
+			lefts[i] = start
+			start += widths[i] + gap
+		}
+	}
+	// The spring runs in labels, so a jump over others crosses them all in one
+	// motion, at one speed, whatever their widths.
+	if selected >= 0 && selected < n {
+		at := min(max(list.AnimateTo("raised", float32(selected), pillSpring), 0), float32(n-1))
+		list.Draw(func(p *ui.Painter, r ui.Rect) {
+			box := func(i int) (x, w float32) {
+				if fill {
+					seg := (r.W - 2*pad - gap*float32(n-1)) / float32(n)
+					return float32(i) * (seg + gap), seg
+				}
+				return lefts[i], widths[i]
+			}
+			i := int(at)
+			f := at - float32(i)
+			x0, w0 := box(i)
+			x1, w1 := box(min(i+1, n-1))
+			x, w := x0+(x1-x0)*f, w0+(w1-w0)*f
+			raised := ui.Rect{X: r.X + pad + x, Y: r.Y + pad, W: w, H: r.H - 2*pad}
+			p.Shadow(raised, radiusMd, 0, 1, 2, 0, colShadow)
+			p.Fill(raised, ui.Hex("#323232"), radiusMd)
+			p.Stroke(raised, colInput, radiusMd, 1)
+		})
+	}
 	list.Children(func() {
 		for i, name := range labels {
-			seg := ui.Row(c.Key(i)).PaddingX(12).Radius(radiusMd).Center().Cursor(ui.CursorPointer)
+			seg := ui.Row(c.Key(i)).PaddingX(side).Radius(radiusMd).Center().Cursor(ui.CursorPointer)
 			if fill {
 				seg.Grow(1).Basis(0)
 			}
 			fg := colMuted
 			switch {
 			case i == selected:
-				seg.Background(ui.Hex("#323232")).Border(1, colInput).Shadow(0, 1, 2, 0, colShadow)
 				fg = colText
 			case seg.Hovered():
 				fg = colText
@@ -663,7 +709,7 @@ func (a *app) sidebar(c *ui.Context) {
 	ui.Column(c).Width(sidebarWidth).Children(func() {
 		// The logo, level with the page's title bar; with it, the top of
 		// the sidebar moves the window.
-		ui.Row(c).Height(8+topHeight).Padding(8, 24, 0, 24).AlignItems(ui.Center).Gap(10).DragWindow().Children(func() {
+		ui.Row(c).Height(8+topHeight).Padding(8, pagePadX, 0, pagePadX).AlignItems(ui.Center).Gap(10).DragWindow().Children(func() {
 			ui.Image(c, icLogo).Size(24, 24)
 			ui.Text(c, "QQ音乐").FontSize(15).FontWeight(600)
 		})
@@ -675,7 +721,7 @@ func (a *app) sidebar(c *ui.Context) {
 			if navItem(c, icCompass, "音乐馆", cur.kind == pageDiscover || cur.kind == pageToplist).Clicked() {
 				a.navigate(page{kind: pageDiscover})
 			}
-			if navItem(c, icPodcast, "小宇宙", cur.kind == pagePodcast || cur.kind == pageXiaoyuzhou || cur.kind == pageXiaoyuzhouShow || cur.kind == pageXiaoyuzhouCategory).Clicked() {
+			if navItem(c, icPodcast, "小宇宙", cur.kind == pagePodcast || cur.kind == pageXiaoyuzhou || cur.kind == pageXiaoyuzhouShow || cur.kind == pageXiaoyuzhouCategory || cur.kind == pageXiaoyuzhouUser).Clicked() {
 				a.navigate(a.podcastHome())
 			}
 			if navItem(c, icSearch, "搜索", cur.kind == pageSearch).Clicked() {

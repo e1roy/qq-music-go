@@ -15,6 +15,27 @@ func (c *Client) Profile(ctx context.Context) (User, error) {
 	return u, err
 }
 
+// UserProfile is another user's profile, as the account sees it.
+func (c *Client) UserProfile(ctx context.Context, uid string) (User, error) {
+	var u User
+	_, err := c.request(ctx, "/v1/profile/get?uid="+url.QueryEscape(uid), nil, &u)
+	return u, err
+}
+
+// UserStats is a user's counts.
+func (c *Client) UserStats(ctx context.Context, uid string) (UserStats, error) {
+	var s UserStats
+	_, err := c.request(ctx, "/v1/user-stats/get?uid="+url.QueryEscape(uid), nil, &s)
+	return s, err
+}
+
+// UserPodcasts is the podcasts a user hosts.
+func (c *Client) UserPodcasts(ctx context.Context, uid string) ([]Podcast, error) {
+	var pods []Podcast
+	_, err := c.request(ctx, "/v1/podcaster/owned-podcasts", map[string]any{"uid": uid}, &pods)
+	return pods, err
+}
+
 // Chart is a chart of the day's episodes.
 func (c *Client) Chart(ctx context.Context, kind ChartKind) (Chart, error) {
 	var v struct {
@@ -55,6 +76,28 @@ func (c *Client) Subscriptions(ctx context.Context, after Cursor) ([]Podcast, Cu
 	body := map[string]any{"limit": pageSize, "sortBy": "subscribedAt", "sortOrder": "desc"}
 	next, err := c.request(ctx, "/v1/subscription/list", after.into(body), &pods)
 	return pods, next, err
+}
+
+// SetSubscription subscribes to a podcast, or unsubscribes from it.
+func (c *Client) SetSubscription(ctx context.Context, pid string, on bool) error {
+	mode := "OFF"
+	if on {
+		mode = "ON"
+	}
+	var v struct{}
+	_, err := c.request(ctx, "/v1/subscription/update", map[string]any{"pid": pid, "mode": mode}, &v)
+	return err
+}
+
+// SetFollowing follows a user, or unfollows them.
+func (c *Client) SetFollowing(ctx context.Context, uid string, on bool) error {
+	relation := "STRANGE"
+	if on {
+		relation = "FOLLOWING"
+	}
+	var v struct{}
+	_, err := c.request(ctx, "/v1/user-relation/update", map[string]any{"uid": uid, "relation": relation}, &v)
+	return err
 }
 
 // Podcast is a podcast's details.

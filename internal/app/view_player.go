@@ -33,21 +33,13 @@ func iconButton(c *ui.Context, ic *ui.SVG, size float32, col ui.Color, tip strin
 func (a *app) playerBar(c *ui.Context) {
 	s, ok := a.nowPlaying()
 	ui.Row(c).Height(barHeight).Padding(0, 8).AlignItems(ui.Center).Gap(16).Children(func() {
-		// The song.
-		ui.Row(c).WidthPercent(28).MinWidth(200).Gap(12).AlignItems(ui.Center).Children(func() {
+		// The song, in a room of its own: the one coming slides in over that
+		// edge rather than over the controls.
+		ui.Row(c).WidthPercent(28).MinWidth(200).Gap(12).AlignItems(ui.Center).ClipX().Children(func() {
 			if !ok {
 				return
 			}
-			cov := ui.Box(c).Cursor(ui.CursorPointer).Tooltip("歌词").Children(func() {
-				a.cover(c, s.Cover(300), 48, radiusMd)
-			})
-			if cov.Clicked() {
-				a.toggleLyrics()
-			}
-			ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
-				ui.Text(c, s.DisplayName()).FontSize(14).FontWeight(500).SingleLine().Cursor(ui.CursorPointer).OnClick(a.toggleLyrics)
-				a.singerLinks(c, s.Singers, 12)
-			})
+			a.songCell(c, s)
 			// An episode of 小宇宙 is not QQ Music's to like.
 			if fromQQ(s) {
 				ic, col := icHeart, colMuted
@@ -216,6 +208,44 @@ func (a *app) playerBar(c *ui.Context) {
 			}
 			a.volumeWasPressed = sl.Pressed()
 		})
+	})
+}
+
+// songCell is the song the bar shows: its cover, name and singers, which
+// slide in from the way the change goes, as the song it replaces slides
+// out the other way. The heart stays put, as it is the bar's rather than
+// the song's. A Transition's Exit is the one of the last frame that built
+// the element, so a copy leaving cannot take the way of the change that
+// removed it. The track the cell is on moves instead, one songSlide
+// against the way of each change, and the cell stands where the track has
+// gone to: the copy of the song before stays where it stood on the track,
+// and so leaves with it, whichever way it goes.
+func (a *app) songCell(c *ui.Context, s qqmusic.Song) {
+	x := songSlide * float32(a.songTrack)
+	track := ui.Row(c).FillWidth().AnimatePose(ui.Pose{X: -x}, songSpring)
+	track.Children(func() {
+		cell := ui.Row(c.Key(keyOf(s))).Gap(12).AlignItems(ui.Center).FillWidth().Translate(x, 0)
+		cell.Transition(ui.ElementTransition{
+			Animation: &songSpring,
+			Position:  true,
+			Enter:     &ui.Motion{Opacity: 0.3},
+			Exit:      &ui.Motion{Opacity: 0},
+		})
+		cell.Children(func() { a.songCellBody(c, s) })
+	})
+}
+
+// songCellBody is the cover, name and singers of a song of songCell.
+func (a *app) songCellBody(c *ui.Context, s qqmusic.Song) {
+	cov := ui.Box(c).Cursor(ui.CursorPointer).Tooltip("歌词").Children(func() {
+		a.cover(c, s.Cover(300), 48, radiusMd)
+	})
+	if cov.Clicked() {
+		a.toggleLyrics()
+	}
+	ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+		ui.Text(c, s.DisplayName()).FontSize(14).FontWeight(500).SingleLine().Cursor(ui.CursorPointer).OnClick(a.toggleLyrics)
+		a.singerLinks(c, s.Singers, 12)
 	})
 }
 

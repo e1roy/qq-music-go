@@ -33,6 +33,22 @@ type User struct {
 	Avatar   struct {
 		Picture Picture `json:"picture"`
 	} `json:"avatar"`
+	Bio   string `json:"bio"`
+	IPLoc string `json:"ipLoc"`
+	// Relation is "FOLLOWING" for a user the account follows, and
+	// "STRANGE" for one it does not.
+	Relation string `json:"relation"`
+}
+
+// Following reports whether the account follows the user.
+func (u User) Following() bool { return u.Relation == "FOLLOWING" }
+
+// UserStats is a user's counts.
+type UserStats struct {
+	FollowingCount     int64 `json:"followingCount"`
+	FollowerCount      int64 `json:"followerCount"`
+	SubscriptionCount  int64 `json:"subscriptionCount"`
+	TotalPlayedSeconds int64 `json:"totalPlayedSeconds"`
 }
 
 // Podcast is a show (节目).
@@ -46,7 +62,13 @@ type Podcast struct {
 	EpisodeCount      int     `json:"episodeCount"`
 	Image             Picture `json:"image"`
 	Podcasters        []User  `json:"podcasters"`
+	// SubscriptionStatus is "ON" for a show the account subscribes to, and
+	// "OFF", or empty, for one it does not.
+	SubscriptionStatus string `json:"subscriptionStatus"`
 }
+
+// Subscribed reports whether the account subscribes to the show.
+func (p Podcast) Subscribed() bool { return p.SubscriptionStatus == "ON" }
 
 // Episode is an episode (单集) of a podcast.
 type Episode struct {

@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"qqmusic/internal/qqmusic"
 )
 
 // Pages, the lyrics and the queue come in and go with poses, which move
@@ -26,6 +28,18 @@ var (
 	queueOut   = ui.Pose{Fade: 1}
 	panelOut   = ui.Pose{X: 40, Fade: 1}
 	sideSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 300 * time.Millisecond}}
+
+	// The raised box of a tab crosses the track from the label chosen before
+	// to the one chosen now.
+	pillSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 260 * time.Millisecond}}
+
+	// The song the bar shows slides in the way the change goes — from the
+	// right for the next one, from the left for the one before — as the
+	// song it replaces fades out the other way. They travel far enough to
+	// be seen as a slide over the fade, and bounce a little so that they
+	// are.
+	songSlide  = float32(96)
+	songSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 380 * time.Millisecond, Bounce: 0.1}}
 )
 
 // appear poses el at out the first time it is built since *in was reset,
@@ -182,4 +196,14 @@ func (m *refreshMotion) card(c *ui.Context, i int, card ui.Element) {
 	a := cardSpring
 	a.Delay = time.Duration(min(i, 8)) * 25 * time.Millisecond
 	card.AnimatePose(ui.Pose{}, a)
+}
+
+// songKey tells a song from the others, as the bar tells them apart.
+type songKey struct {
+	source, mid string
+	id          int64
+}
+
+func keyOf(s qqmusic.Song) songKey {
+	return songKey{s.Source, s.Mid, int64(s.ID)}
 }

@@ -47,7 +47,7 @@ func (a *app) searchPage(c *ui.Context) {
 // searched, how much the tab found, and the tabs.
 func (a *app) searchHeader(c *ui.Context) {
 	s := &a.search
-	ui.Column(c).Padding(8, 24, 8, 24).Gap(4).Children(func() {
+	ui.Column(c).Padding(8, pagePadX, 8, pagePadX).Gap(4).Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Gap(12).Children(func() {
 			ui.Text(c, "“"+s.query+"” 的搜索结果").FontSize(22).FontWeight(600).LetterSpacing(-0.4).Grow(1).SingleLine()
 			if s.tab == foundSongs && len(s.songs) > 0 {
@@ -290,13 +290,13 @@ func foundGrid(a *app, c *ui.Context, ls *ui.ListState, n, cols int, card func(i
 			a.searchHeader(c)
 		case i <= rows:
 			r := i - 1
-			ui.Grid(c).Columns(cols).Gap(12).Padding(0, 24, 12, 24).Children(func() {
+			ui.Grid(c).Columns(cols).Gap(12).Padding(0, pagePadX, 12, pagePadX).Children(func() {
 				for i := r * cols; i < min(n, (r+1)*cols); i++ {
 					card(i)
 				}
 			})
 		default:
-			ui.Column(c).Padding(0, 24, 0, 24).Children(end)
+			ui.Column(c).Padding(0, pagePadX, 0, pagePadX).Children(end)
 		}
 	}).Grow(1).Padding(0, 0, 24, 0).Children(func() {})
 }

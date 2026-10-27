@@ -64,7 +64,7 @@ func (a *app) singerPage(c *ui.Context, p page) {
 // singerBar switches a singer's page between their songs and their
 // albums, and their order. The rows of the list change after the build.
 func (a *app) singerBar(c *ui.Context, p page, l *songList) {
-	ui.Row(c).Padding(0, 24, 12, 24).Gap(4).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Padding(0, pagePadX, 12, pagePadX).Gap(4).AlignItems(ui.Center).Children(func() {
 		songs, albums := "歌曲", "专辑"
 		if l.total > 0 {
 			songs += fmt.Sprintf(" %d", l.total)
@@ -118,7 +118,7 @@ func (a *app) singerSongsEnd(c *ui.Context, p page, l *songList) {
 
 // albumRow is row r of the cards of a singer's albums.
 func (a *app) albumRow(c *ui.Context, items []qqmusic.AlbumInfo, r, cols int) {
-	ui.Grid(c).Columns(cols).Gap(12).Padding(0, 24, 12, 24).Children(func() {
+	ui.Grid(c).Columns(cols).Gap(12).Padding(0, pagePadX, 12, pagePadX).Children(func() {
 		for _, it := range items[r*cols : min(len(items), (r+1)*cols)] {
 			pg := page{kind: pageAlbum, mid: it.Mid, title: it.Name}
 			sub := it.PublishDate

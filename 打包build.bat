@@ -57,7 +57,7 @@ if not exist "%REL%" mkdir "%REL%"
 rem The pictures are embedded, so the exe alone is the portable app.
 copy /y "%OUT%\QQMusic.exe" "%REL%\%PORTABLE%" >nul
 if errorlevel 1 goto copyfailed
-copy /y "%OUT%\QQMusic Setup %VERSION% amd64.exe" "%REL%\%SETUP%" >nul
+copy /y "%OUT%\qqmusic-setup-%VERSION%-amd64.exe" "%REL%\%SETUP%" >nul
 if errorlevel 1 goto copyfailed
 
 echo.

@@ -38,6 +38,8 @@ func (a *app) content(c *ui.Context) {
 		a.xiaoyuzhouShowPage(c, p)
 	case pageXiaoyuzhouCategory:
 		a.xiaoyuzhouCategoryPage(c, p)
+	case pageXiaoyuzhouUser:
+		a.xiaoyuzhouUserPage(c, p)
 	case pageSettings:
 		a.settingsPage(c)
 	}
@@ -58,7 +60,7 @@ func (a *app) columns(c *ui.Context, min float32) int {
 func (a *app) pageScroll(c *ui.Context, s *ui.ScrollState, col ui.Color, fn func()) {
 	a.tint.aim(c, col)
 	ui.Scroll(c).Grow(1).TrackScroll(s).Children(func() {
-		ui.Column(c).Padding(8, 24, 28, 24).Gap(14).Children(fn)
+		ui.Column(c).Padding(8, pagePadX, 28, pagePadX).Gap(14).Children(fn)
 	})
 }
 
@@ -631,7 +633,7 @@ func (a *app) recentPage(c *ui.Context, p page) {
 func (a *app) listHeader(c *ui.Context, p page, l *songList) {
 	info := l.info
 	a.tint.aim(c, a.listTint(p, l))
-	ui.Column(c).Gap(16).Padding(12, 24, 16, 24).Children(func() {
+	ui.Column(c).Gap(16).Padding(12, pagePadX, 16, pagePadX).Children(func() {
 		ui.Row(c).Gap(20).AlignItems(ui.End).Children(func() {
 			cover := info.Cover
 			// 我喜欢 and 最近播放 show the cover of their first song.
@@ -768,24 +770,39 @@ func (a *app) songTable(c *ui.Context, ls *ui.ListState, songs []qqmusic.Song, h
 	}
 }
 
-// columnTitles is the head of the songs, as shadcn's TableHeader: a line
-// below it as below every row.
+// tableHead is the row of a table's column titles, as shadcn's TableHeader:
+// a line below it as below every row. A table in a scrolled page is drawn at
+// the panel's edge, hence the page's padding as its margin, which rows share.
+func tableHead(c *ui.Context, fn func()) {
+	ui.Row(c).Height(40).Margin(0, pagePadX).Padding(0, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine).Children(fn)
+}
+
+// headText is a column title of tableHead, aligned with the column below it.
+func headText(c *ui.Context, s string) ui.Element {
+	return ui.Text(c, s).FontSize(13).FontWeight(500).TextColor(colMuted)
+}
+
+// headClock is the last column of tableHead: how long each row is.
+func headClock(c *ui.Context) {
+	ui.Box(c).Width(48).AlignItems(ui.End).Children(func() { ui.Icon(c, icClock).FontSize(14).TextColor(colMuted) })
+}
+
+// columnTitles is the head of the songs.
 func (a *app) columnTitles(c *ui.Context) {
-	ui.Row(c).Height(40).Margin(0, 24).Padding(0, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine).Children(func() {
-		muted := func(s string) ui.Element { return ui.Text(c, s).FontSize(13).FontWeight(500).TextColor(colMuted) }
-		muted("#").Width(32).TextAlign(ui.End)
-		muted("标题").Grow(3).Basis(0)
-		muted("歌手").Grow(2).Basis(0)
-		muted("专辑").Grow(2).Basis(0)
+	tableHead(c, func() {
+		headText(c, "#").Width(32).TextAlign(ui.End)
+		headText(c, "标题").Grow(3).Basis(0)
+		headText(c, "歌手").Grow(2).Basis(0)
+		headText(c, "专辑").Grow(2).Basis(0)
 		ui.Box(c).Width(32)
-		ui.Box(c).Width(48).AlignItems(ui.End).Children(func() { ui.Icon(c, icClock).FontSize(14).TextColor(colMuted) })
+		headClock(c)
 	})
 }
 
 func (a *app) songRow(c *ui.Context, songs []qqmusic.Song, i int) {
 	s := songs[i]
 	playing := a.isPlaying(s)
-	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, 24).Padding(6, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine)
+	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine)
 	hover := row.Hovered()
 	switch {
 	case hover:

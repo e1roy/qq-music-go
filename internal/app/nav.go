@@ -19,6 +19,7 @@ const (
 	pageXiaoyuzhou         // 小宇宙 官方: 小宇宙's own podcasts
 	pageXiaoyuzhouShow     // a podcast of 小宇宙, by its pid as mid
 	pageXiaoyuzhouCategory // a category of 小宇宙's podcasts, by its id as mid
+	pageXiaoyuzhouUser     // a host of 小宇宙, by their uid as mid
 	pageSettings           // 设置, its section by settingsTab
 )
 
@@ -122,6 +123,8 @@ func (a *app) enter(p page) {
 		a.loadXiaoyuzhouShow(p.mid, false)
 	case pageXiaoyuzhouCategory:
 		a.loadXiaoyuzhouCategory(p.mid, false)
+	case pageXiaoyuzhouUser:
+		a.loadXiaoyuzhouUser(p.mid, false)
 	case pageSettings:
 		a.measureCache()
 	}
@@ -166,6 +169,8 @@ func (a *app) refresh() {
 		a.loadXiaoyuzhouShow(p.mid, true)
 	case pageXiaoyuzhouCategory:
 		a.loadXiaoyuzhouCategory(p.mid, true)
+	case pageXiaoyuzhouUser:
+		a.loadXiaoyuzhouUser(p.mid, true)
 	case pageSettings:
 		a.measureCache()
 	}
@@ -198,6 +203,9 @@ func (a *app) refreshing() bool {
 	case pageXiaoyuzhouCategory:
 		cat := a.xiaoyuzhou.cats[p.mid]
 		return cat != nil && (cat.loading || len(cat.lists) > 0 && cat.lists[cat.tab].loading)
+	case pageXiaoyuzhouUser:
+		us := a.xiaoyuzhou.users[p.mid]
+		return us != nil && us.loading
 	case pageSettings:
 		return a.cacheBusy
 	}

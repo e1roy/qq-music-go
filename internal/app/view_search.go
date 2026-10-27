@@ -160,17 +160,20 @@ func (a *app) foundSongs(c *ui.Context) {
 			}
 		})
 	}
+	// Below the title bar, as songTable's list starts.
 	if s.loading {
-		header()
-		ui.Column(c).Grow(1).Clip().Children(func() {
+		ui.Column(c).Grow(1).Padding(topHeight, 0, 0, 0).Clip().Children(func() {
+			header()
 			a.columnTitles(c)
 			skeleton(c, func() { songRowsSkeleton(c, 12) }).Gap(0)
 		})
 		return
 	}
 	if s.err != "" {
-		header()
-		errorRow(c, s.err, func() { a.runSearch(s.query, s.page) })
+		ui.Column(c).Padding(topHeight, 0, 0, 0).Children(func() {
+			header()
+			errorRow(c, s.err, func() { a.runSearch(s.query, s.page) })
+		})
 		return
 	}
 	a.songTable(c, &s.list, s.songs, header, footer, false)
@@ -298,7 +301,7 @@ func foundGrid(a *app, c *ui.Context, ls *ui.ListState, n, cols int, card func(i
 		default:
 			ui.Column(c).Padding(0, pagePadX, 0, pagePadX).Children(end)
 		}
-	}).Grow(1).Padding(0, 0, 24, 0).Children(func() {})
+	}).Grow(1).Padding(topHeight, 0, barRoom+16, 0).Children(func() {})
 }
 
 // foundEnd is the end of what a tab found: its bones as it loads, what

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -30,9 +31,35 @@ func iconButton(c *ui.Context, ic *ui.SVG, size float32, col ui.Color, tip strin
 	return b
 }
 
+// barFace poses the bar's card or the frost around it: faded out over the
+// lyrics, where the bar is part of the page, as they come out of the cover.
+func (a *app) barFace(el ui.Element) {
+	fade := float32(0)
+	if a.showLyrics {
+		fade = 1
+	}
+	el.AnimatePose(ui.Pose{Fade: fade}, lyricsSpring)
+}
+
 func (a *app) playerBar(c *ui.Context) {
 	s, ok := a.nowPlaying()
-	ui.Row(c).Height(barHeight).Padding(0, 8).AlignItems(ui.Center).Gap(16).Children(func() {
+	cover := ""
+	if ok {
+		cover = s.Cover(300)
+	}
+	a.barTint.aim(c, a.pageTint(cover))
+	// A card floating over the bottom of the panel (barRoom), with a wash
+	// of the cover's color fading out from the left, under the song. The
+	// card is a layer of its own under the controls, for it to fade, in
+	// frames that only paint, as the lyrics open.
+	a.barFace(ui.Box(c.Key("barFace")).Absolute().Left(8).Right(8).Bottom(8).Height(barHeight).PassThrough().
+		Radius(radiusXl).Background(colCard).Border(1, colLine).Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.5)).
+		Draw(func(p *ui.Painter, r ui.Rect) {
+			col := a.barTint.color(p)
+			p.FillGradient(r, ui.LinearGradient{From: col.Alpha(0.35), To: col.Alpha(0), Angle: 90, End: 0.5}, radiusXl)
+		}))
+	bar := ui.Row(c).Absolute().Left(8).Right(8).Bottom(8).Height(barHeight).Padding(0, 16, 0, 12).AlignItems(ui.Center).Gap(16)
+	bar.Children(func() {
 		// The song, in a room of its own: the one coming slides in over that
 		// edge rather than over the controls.
 		ui.Row(c).WidthPercent(28).MinWidth(200).Gap(12).AlignItems(ui.Center).ClipX().Children(func() {
@@ -133,7 +160,7 @@ func (a *app) playerBar(c *ui.Context) {
 			if s, ok := a.nowPlaying(); ok {
 				file, hasSong = s.File, true
 			}
-			ui.PopoverBase(c, qb, &a.qualityOpen, func(panel ui.Element) {
+			popupUp(c, &a.qualityPopup, qb, &a.qualityOpen, func(panel ui.Element) {
 				panel.AttachTo(qb, ui.AnchorTop, ui.AnchorBottom).Margin(0, 0, 8, 0).
 					Padding(4).Gap(1).Width(236).Radius(radiusLg).Background(colCard).Border(1, colLine).
 					Shadow(0, 8, 24, 0, colShadow)
@@ -269,7 +296,7 @@ func (a *app) modeButton(c *ui.Context) {
 	if b.Clicked() {
 		a.modeOpen = !a.modeOpen
 	}
-	ui.PopoverBase(c, b, &a.modeOpen, func(panel ui.Element) {
+	popupUp(c, &a.modePopup, b, &a.modeOpen, func(panel ui.Element) {
 		panel.AttachTo(b, ui.AnchorTop, ui.AnchorBottom).Margin(0, 0, 8, 0).
 			Padding(4).Gap(2).Width(136).Radius(radiusLg).Background(colCard).Border(1, colLine).
 			Shadow(0, 8, 24, 0, colShadow)
@@ -379,50 +406,109 @@ func (a *app) nowPlayingPage(c *ui.Context) {
 		}
 		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Gradient(ui.RGBA(0, 0, 0, 0.35), ui.RGBA(0, 0, 0, 0.75), 180)
 		w, _ := c.Size()
-		avail := w - sidebarWidth - 24
-		if a.sidePanel() {
-			avail -= queueWidth
-		}
-		side := min(max(avail*0.34, 0), 340)
-		// Clear of the panel on the right, which covers the lyrics' room.
-		right := float32(48)
-		if a.sidePanel() {
-			right += queueWidth
-		}
-		ui.Row(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Padding(topHeight, right, 32, 48).Gap(48).AlignItems(ui.Center).Children(func() {
+		side := min(max((w-sidebarWidth-24)*0.34, 0), 340)
+		// A panel on the right, the queue or the comments, takes the
+		// lyrics' place, not the cover's: it stays as it is, where it is.
+		panel := a.sidePanel()
+		ui.Row(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Padding(topHeight, 48, barRoom+24, 48).Gap(48).AlignItems(ui.Center).Children(func() {
 			if side >= 180 {
-				ui.Column(c).Width(side).Gap(16).Children(func() {
+				ui.Column(c).Width(side).Gap(14).Children(func() {
 					ui.Box(c).Size(side, side).Radius(radiusXl).Clip().Shadow(0, 16, 48, 0, ui.RGBA(0, 0, 0, 0.5)).Children(func() {
 						a.coverOr(c, s.Cover(500), s.Cover(300), side, radiusXl)
 						ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(radiusXl).Border(1, colLine)
 					})
-					ui.Text(c, s.DisplayName()).FontSize(22).FontWeight(600).LetterSpacing(-0.4).MaxLines(2)
-					a.singerLinks(c, s.Singers, 15)
-					if s.Album.Name != "" {
-						ui.Row(c).MinWidth(0).AlignItems(ui.Center).Children(func() {
-							label := "专辑："
-							if a.isEpisode(s) {
-								label = "节目："
+					// The name and the singers are one block: the gap within
+					// it is smaller than the one that sets it apart from the
+					// cover and from what follows.
+					ui.Column(c).Gap(6).Children(func() {
+						// Selectable, so that the name can be copied as it is
+						// shown, by selecting it or from the menu.
+						ui.Text(c, s.DisplayName()).FontSize(26).FontWeight(600).LetterSpacing(-0.6).LineHeight(1.25).MaxLines(2).
+							Selectable().ContextMenu(func(m *ui.Menu) {
+							if m.Item("复制歌名").Chosen() {
+								c.WriteClipboard(s.DisplayName())
 							}
-							ui.Text(c, label).FontSize(13).TextColor(colMuted).NoWrap()
-							a.albumLink(c, s, 13).Shrink(1)
+							m.Separator()
+							m.EditItems()
 						})
-					}
-					ui.Row(c).Margin(4, 0, 0, 0).Children(func() { a.commentsTab(c, s) })
+						a.singerLinks(c, s.Singers, 15)
+					})
+					// The album and the comments are a block of two rows of
+					// the same shape, so that they line up.
+					ui.Column(c).Gap(2).Children(func() {
+						a.albumLine(c, s)
+						a.commentsTab(c, s)
+					})
 				})
 			}
-			a.lyricsView(c)
+			if !panel {
+				a.lyricsView(c)
+			}
 		})
 		// On the left: the window controls are on the right.
 		if iconButton(c, icDown, 18, colMuted, "收起").Absolute().Top(12).Left(12).Clicked() {
-			a.showLyrics = false
+			a.closeLyrics()
 		}
 	})
+}
+
+// albumLine is the album of the song playing, the page of it on a click.
+// It has no frame of its own, only the ghost the comments below it have, so
+// that the two sit as one block under the name.
+func (a *app) albumLine(c *ui.Context, s qqmusic.Song) {
+	if s.Album.Name == "" {
+		return
+	}
+	label := "专辑"
+	if a.isEpisode(s) {
+		label = "节目"
+	}
+	row := rowUnderName(c)
+	link := s.Album.Mid != ""
+	fg := colMuted
+	if link {
+		row.Cursor(ui.CursorPointer)
+		if row.Hovered() {
+			row.Background(colGhost)
+			fg = colText
+		}
+	}
+	row.Children(func() {
+		ui.Icon(c, icDisc).FontSize(14).TextColor(fg)
+		ui.Text(c, label).FontSize(12).TextColor(fg).NoWrap()
+		ui.Text(c, s.Album.Name).FontSize(13).TextColor(colText).SingleLine().MinWidth(0).Shrink(1)
+	})
+	if link && row.Clicked() {
+		a.navigate(albumOf(s))
+	}
+}
+
+// rowUnderName is a line of the block under the name of the song playing:
+// the album's and the comments' are both this, so that they line up. Its
+// padding is put outside its left edge, so that its text lines up with the
+// name above it.
+func rowUnderName(c *ui.Context) ui.Element {
+	return ui.Row(c).Height(30).PaddingX(8).MarginX(-8).Gap(8).Radius(radiusMd).AlignItems(ui.Center)
 }
 
 // lyricPad is the empty rows above and below the lyrics, so that the
 // first and last lines can scroll to the center.
 const lyricPad = 6
+
+// The type of a lyric line: the one the song is at is larger and bold, and
+// the lines it has passed are dimmer to it than the ones still to come.
+// These are the ends the transitions between lines move between.
+const (
+	lyricSize     = 19
+	lyricSizeOn   = 24
+	lyricWeight   = 400
+	lyricWeightOn = 700
+)
+
+var (
+	lyricPast = ui.RGBA(255, 255, 255, 0.45)
+	lyricNext = ui.RGBA(255, 255, 255, 0.62)
+)
 
 func (a *app) lyricsView(c *ui.Context) {
 	if s, ok := a.nowPlaying(); ok && isXiaoyuzhou(s) {
@@ -436,6 +522,9 @@ func (a *app) lyricsView(c *ui.Context) {
 	}
 	cur := a.lyricLine
 	if cur != a.lyricShown && cur >= 0 && time.Since(a.lyricHold) > 4*time.Second {
+		// Where the line the song comes to shows before the list centers it:
+		// the lines are drawn from there, and slide on to their place.
+		a.lyricScroll.start(c, &a.lyricList, a.lyricShown, cur)
 		a.lyricList.ScrollTo(cur+lyricPad, ui.Center)
 	}
 	a.lyricShown = cur
@@ -449,27 +538,47 @@ func (a *app) lyricsView(c *ui.Context) {
 		l := lines[i]
 		on := i == cur
 		row := ui.Column(c.Key(i)).Padding(10, 16).Gap(4).Radius(radiusLg)
+		if i == cur+1 {
+			a.lyricScroll.bind(i, row)
+		}
+		a.lyricScroll.glide(row)
+		// The line the song reaches grows and brightens as it comes, and the
+		// line it left shrinks and dims back, so that a change of line reads
+		// as the song moving on rather than as a jump.
+		size, weight, fg, tr := float32(lyricSize), float32(lyricWeight), lyricNext, lyricPast
+		switch {
+		case on:
+			size, weight, fg, tr = lyricSizeOn, lyricWeightOn, colText, colText
+		case i < cur:
+			fg = lyricPast
+		}
+		size = row.AnimateTo("lyric-size", size, lyricGrow)
+		weight = row.AnimateTo("lyric-weight", weight, lyricGrow)
+		fg = row.AnimateColor("lyric-fg", fg, lyricFade)
+		tr = row.AnimateColor("lyric-trans", tr, lyricFade)
 		hover := timed && row.Hovered()
+		wash := ui.Color{}
 		if hover {
-			row.Background(ui.RGBA(255, 255, 255, 0.06)).Cursor(ui.CursorPointer)
+			wash = ui.RGBA(255, 255, 255, 0.06)
+			row.Cursor(ui.CursorPointer)
+		}
+		row.Background(row.AnimateColor("lyric-wash", wash, lyricWash))
+		// A press on the text seeks, so it cannot also drag a selection:
+		// the copy is the row's menu.
+		if l.Text != "" {
+			row.ContextMenu(func(m *ui.Menu) {
+				if m.Item("复制此句").Chosen() {
+					c.WriteClipboard(lyricText(l))
+				}
+				if m.Item("复制全部歌词").Chosen() {
+					c.WriteClipboard(lyricsText(lines))
+				}
+			})
 		}
 		row.Children(func() {
-			t := ui.Text(c, l.Text).LineHeight(1.35)
-			switch {
-			case on:
-				t.FontSize(24).FontWeight(700).TextColor(colText)
-			case i < cur:
-				t.FontSize(19).TextColor(ui.RGBA(255, 255, 255, 0.45))
-			default:
-				t.FontSize(19).TextColor(ui.RGBA(255, 255, 255, 0.62))
-			}
+			ui.Text(c, l.Text).LineHeight(1.35).FontSize(size).FontWeight(int(weight + 0.5)).TextColor(fg)
 			if l.Trans != "" {
-				tr := ui.Text(c, l.Trans).FontSize(14)
-				if on {
-					tr.TextColor(colText)
-				} else {
-					tr.TextColor(ui.RGBA(255, 255, 255, 0.45))
-				}
+				ui.Text(c, l.Trans).FontSize(14).TextColor(tr)
 			}
 			if hover {
 				ui.Text(c, formatTime(l.At)).FontSize(11).TextColor(colAccent)
@@ -485,6 +594,31 @@ func (a *app) lyricsView(c *ui.Context) {
 		}
 		return false
 	})
+	a.lyricScroll.done()
+}
+
+// lyricText is a line as the page shows it: the translation under it, if
+// there is one.
+func lyricText(l qqmusic.LyricLine) string {
+	if l.Trans == "" {
+		return l.Text
+	}
+	return l.Text + "\n" + l.Trans
+}
+
+// lyricsText is all the lyrics as the page shows them, for the clipboard.
+func lyricsText(lines []qqmusic.LyricLine) string {
+	var b strings.Builder
+	for _, l := range lines {
+		if l.Text == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(lyricText(l))
+	}
+	return b.String()
 }
 
 // episodeNotesView is what a 小宇宙 episode shows in place of the lyrics:
@@ -527,11 +661,11 @@ func (a *app) queuePanel(c *ui.Context) {
 	// controls go on over its top, which moves the window.
 	// Out of the layout of its room, which is narrower as it comes and goes.
 	col := ui.Column(c.Key("queue")).Absolute().Top(0).Left(0).Bottom(0).Width(queueWidth)
-	out := queueOut
+	in, out := queueOut, queueOut
 	if a.showLyrics {
-		out = panelOut
+		in, out = panelIn, panelOut
 	}
-	a.queueShow.animate(c, col, out, sideSpring)
+	a.queueShow.animate(c, col, in, out, sideSpring)
 	// A press anywhere else closes it, as a popover: the queue has no
 	// focus of its own to lose. Nothing to do while it is already going.
 	if a.showQueue && !a.queueShow.going && !a.queueBtnHover && col.PressedOutside() {
@@ -539,7 +673,7 @@ func (a *app) queuePanel(c *ui.Context) {
 	}
 	col.Children(func() {
 		ui.Box(c).Height(topHeight).DragWindow()
-		ui.Column(c).Grow(1).MinHeight(0).Margin(0, 8, 8, 0).Radius(radiusXl).Background(colCard).Border(1, colLine).Clip().Children(func() {
+		ui.Column(c).Grow(1).MinHeight(0).Margin(0, 8, barRoom, 0).Radius(radiusXl).Background(colCard).Border(1, colLine).Clip().Children(func() {
 			ui.Row(c).Padding(12, 10, 12, 16).AlignItems(ui.Center).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(colLine).Children(func() {
 				ui.Column(c).Grow(1).Gap(1).Children(func() {
 					ui.Text(c, "播放队列").FontSize(14).FontWeight(600)

@@ -101,6 +101,112 @@ func TestSongWay(t *testing.T) {
 	}
 }
 
+// TestHistoryKeys checks that the mouse's side buttons, which MyGo reports
+// as KeyBack and KeyForward, walk the history as Alt with the arrows does.
+func TestHistoryKeys(t *testing.T) {
+	a, _ := newOfflineApp(t, t.TempDir())
+	tt := ui.NewTester(a.view, 1280, 820)
+	home := a.current()
+	a.navigate(page{kind: pageSettings})
+	tt.Frame()
+	if a.current().kind != pageSettings {
+		t.Fatalf("on %+v, want the settings", a.current())
+	}
+	tt.Key(0, ui.KeyBack)
+	tt.Frame()
+	if a.current().key() != home.key() {
+		t.Fatalf("on %+v after the back button, want %+v", a.current(), home)
+	}
+	tt.Key(0, ui.KeyForward)
+	tt.Frame()
+	if a.current().kind != pageSettings {
+		t.Fatalf("on %+v after the forward button, want the settings", a.current())
+	}
+}
+
+// TestCommentsSlideIn checks that the comments panel comes in from the
+// edge of its room rather than showing at its place.
+func TestCommentsSlideIn(t *testing.T) {
+	a, _ := newOfflineApp(t, t.TempDir())
+	a.showLyrics = true
+	tt := ui.NewTester(a.view, 1280, 820)
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	a.toggleComments()
+	tt.Frame()
+	start, ok := tt.Find("还没有评论")
+	if !ok {
+		t.Fatalf("no comments panel: %q", tt.Texts())
+	}
+	tt.Advance(40 * time.Millisecond)
+	tt.Frame()
+	coming, _ := tt.Find("还没有评论")
+	tt.Advance(time.Second)
+	tt.Frame()
+	rest, _ := tt.Find("还没有评论")
+	if !(coming.X < start.X && rest.X < coming.X) {
+		t.Fatalf("the panel does not come in: %.0f, %.0f, %.0f", start.X, coming.X, rest.X)
+	}
+}
+
+// TestBackToLyrics checks that a page opened from the lyrics, as the album
+// link of them does, goes back to them, and that the lyrics closed by hand
+// do not come back.
+func TestBackToLyrics(t *testing.T) {
+	a, _ := newOfflineApp(t, t.TempDir())
+	from := a.current()
+	a.showLyrics = true
+	a.navigate(page{kind: pageAlbum, mid: "m", title: "专辑"})
+	if a.showLyrics {
+		t.Fatal("the lyrics stay up over the page they go to")
+	}
+	a.back()
+	if a.current().key() != from.key() {
+		t.Fatalf("back on %+v, want %+v", a.current(), from)
+	}
+	if !a.showLyrics {
+		t.Fatal("back does not bring the lyrics up again")
+	}
+
+	a.closeLyrics()
+	a.navigate(page{kind: pageSinger, mid: "s", title: "歌手"})
+	a.back()
+	if a.showLyrics {
+		t.Fatal("the lyrics come back after being closed")
+	}
+}
+
+// TestHistoryKeyAnimates checks that going back by the mouse's side buttons
+// brings the page in as the top bar's button does, not at its place at
+// once: the key is taken in a frame that builds the view again, so a page
+// changed before that build would show there without the pose.
+func TestHistoryKeyAnimates(t *testing.T) {
+	a, _ := newOfflineApp(t, t.TempDir())
+	tt := ui.NewTester(a.view, 1280, 820)
+	// 设置 holds what a page shows without asking anything, and 最近播放
+	// asks nothing either: nothing else moves as the page comes back.
+	a.navigate(page{kind: pageSettings})
+	tt.Frame()
+	a.navigate(page{kind: pageRecent})
+	tt.Frame()
+	tt.Advance(time.Second)
+
+	tt.Key(0, ui.KeyBack)
+	coming := tt.Image()
+	tt.Advance(time.Second)
+	rest := tt.Image()
+	moved := 0
+	for i := 0; i+3 < len(coming.Pix); i += 4 {
+		if coming.Pix[i] != rest.Pix[i] || coming.Pix[i+1] != rest.Pix[i+1] || coming.Pix[i+2] != rest.Pix[i+2] {
+			moved++
+		}
+	}
+	if pixels := len(coming.Pix) / 4; moved < pixels/10 {
+		t.Errorf("the page shows at its place %d pixels into %d: it did not come in", moved, pixels)
+	}
+}
+
 func TestQueueEdits(t *testing.T) {
 	dir := t.TempDir()
 	a, _ := newOfflineApp(t, dir)
@@ -595,16 +701,19 @@ func TestShowLabel(t *testing.T) {
 	tt := ui.NewTester(a.view, 1280, 820)
 	a.showLyrics = true
 	for _, tc := range []struct {
-		known bool
-		want  string
-	}{{false, "专辑："}, {true, "节目："}} {
+		known       bool
+		want, other string
+	}{
+		{false, "专辑", "节目"},
+		{true, "节目", "专辑"},
+	} {
 		a.podcast.known["show"] = tc.known
 		setQueue(a, []qqmusic.Song{{Mid: "e", Name: "第一集", Album: qqmusic.Album{Mid: "show", Name: "日谈公园"}}}, 0)
 		tt.Frame()
 		tt.Advance(time.Second)
 		tt.Frame()
-		if !tt.HasText(tc.want) {
-			t.Errorf("known %v: no %q in %q", tc.known, tc.want, tt.Texts())
+		if !tt.HasText(tc.want) || tt.HasText(tc.other) {
+			t.Errorf("known %v: no %q but %q in %q", tc.known, tc.want, tc.other, tt.Texts())
 		}
 	}
 }
@@ -753,8 +862,9 @@ func TestPlayFromCache(t *testing.T) {
 	}
 }
 
-// TestSettings opens 设置 from the gear beside the user, not the user's
-// menu, and sets the song cache there: its limit, kept, and clearing it.
+// TestSettings opens 设置 from the gear beside the user, which closes the
+// user's popup, and sets the song cache there: its limit, kept, and
+// clearing it.
 func TestSettings(t *testing.T) {
 	data := t.TempDir()
 	a, f := newOfflineApp(t, data)
@@ -768,17 +878,17 @@ func TestSettings(t *testing.T) {
 	if err := tt.Click("e1roy"); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(tt.Menu(), "退出登录") {
-		t.Fatalf("the user's menu: %q", tt.Menu())
+	tt.Frame()
+	if !a.userMenu || !tt.HasText("退出登录") {
+		t.Fatalf("the user's popup, open %v", a.userMenu)
 	}
-	tt.CloseMenu()
 	if err := tt.Click("设置"); err != nil {
 		t.Fatal(err)
 	}
 	drain(t, f, 5*time.Second, func() bool { return a.cacheUsed >= 0 && !a.cacheBusy })
 	tt.Frame()
-	if a.current().kind != pageSettings || len(tt.Menu()) != 0 {
-		t.Fatalf("at %v, menu %q", a.current().kind, tt.Menu())
+	if a.current().kind != pageSettings || a.userMenu {
+		t.Fatalf("at %v, the user's popup open %v", a.current().kind, a.userMenu)
 	}
 	if a.cacheUsed != 1000 || !tt.HasText("空间上限") {
 		t.Fatalf("used %d", a.cacheUsed)

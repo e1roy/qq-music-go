@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -714,19 +715,89 @@ func TestEpisodeNotes(t *testing.T) {
 	}}
 	a.showLyrics = true
 	tt.Frame()
-	for _, want := range []string{"单集简介", "第一段：这是单集的简介。", "第二段：还有 shownotes。", "评论 120"} {
+	for _, want := range []string{"单集简介", "第一段：这是单集的简介。", "第二段：还有 shownotes。", "评论", "120"} {
 		if !tt.HasText(want) {
 			t.Fatalf("no %q: %q", want, tt.Texts())
 		}
 	}
 	shot(t, tt, "episode-notes")
-	if err := tt.Click("评论 120"); err != nil {
+	if err := tt.Click("评论"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(time.Second)
 	tt.Frame()
 	if !tt.HasText("讲得真好") || !tt.HasText("120 条评论") {
 		t.Fatalf("no episode comments: %q", tt.Texts())
+	}
+}
+
+// TestCopyNowPlaying takes the name and the lyrics of the song playing to
+// the clipboard: the name by selecting it or from its menu, a line or all of
+// them from the lyrics' menus, which leave a press on a line to seeking.
+func TestCopyNowPlaying(t *testing.T) {
+	a, tt, _ := newTestApp(t)
+	const name = "Training Season (London Sessions)"
+	const line, trans = "And baby I don't need to learn my lesson twice", "宝贝 我不需要重蹈覆辙"
+	a.queue = playqueue.Restore([]qqmusic.Song{{Mid: "copy", Name: name}}, 0, false)
+	a.lyrics, a.lyricsFor = []qqmusic.LyricLine{
+		{At: time.Second, Text: "Play fair", Trans: "彼此坦诚吧"},
+		{At: 2 * time.Second, Text: line, Trans: trans},
+	}, "copy"
+	a.showLyrics = true
+	tt.Frame()
+
+	// The name takes a selection, which Ctrl+C copies.
+	if err := tt.Click(name); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Key(ui.Cmd, ui.KeyC)
+	if got := tt.Clipboard(); got != name {
+		t.Errorf("the selected name copied %q", got)
+	}
+
+	// Its menu copies it whole, in one go.
+	if err := tt.RightClick(name); err != nil {
+		t.Fatal(err)
+	}
+	if got := tt.Menu(); !slices.Contains(got, "复制歌名") {
+		t.Fatalf("the name's menu is %q", got)
+	}
+	if err := tt.ChooseMenuItem("复制歌名"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tt.Clipboard(); got != name {
+		t.Errorf("the name's menu copied %q", got)
+	}
+
+	// A line, with its translation under it, and all the lyrics.
+	for _, step := range []struct {
+		item, want string
+	}{
+		{"复制此句", line + "\n" + trans},
+		{"复制全部歌词", "Play fair\n彼此坦诚吧\n" + line + "\n" + trans},
+	} {
+		if err := tt.RightClick(line); err != nil {
+			t.Fatal(err)
+		}
+		if got := tt.Menu(); !slices.Contains(got, step.item) {
+			t.Fatalf("the lyrics' menu is %q", got)
+		}
+		if err := tt.ChooseMenuItem(step.item); err != nil {
+			t.Fatal(err)
+		}
+		if got := tt.Clipboard(); got != step.want {
+			t.Errorf("%s copied %q, want %q", step.item, got, step.want)
+		}
+	}
+
+	// A left click still seeks, which the copy took no room from.
+	a.lyricHold = time.Now()
+	if err := tt.Click(line); err != nil {
+		t.Fatal(err)
+	}
+	if !a.lyricHold.IsZero() {
+		t.Error("a press on a line no longer seeks")
 	}
 }
 
@@ -743,20 +814,44 @@ func TestComments(t *testing.T) {
 	}}
 	a.toggleLyrics()
 	tt.Frame()
-	if !tt.HasText("评论 33.9万") {
+	if !tt.HasText("评论") || !tt.HasText("33.9万") {
 		t.Fatalf("no comments tab: %q", tt.Texts())
 	}
-	if err := tt.Click("评论 33.9万"); err != nil {
+	name, _ := tt.Find("晴天")
+	if err := tt.Click("评论"); err != nil {
 		t.Fatal(err)
 	}
+	// The panel slides in, as the click brings it, not at its place at once.
+	start, _ := tt.Find("33.9万 条评论")
+	tt.Advance(40 * time.Millisecond)
+	tt.Frame()
+	coming, _ := tt.Find("33.9万 条评论")
 	tt.Advance(time.Second)
 	tt.Frame()
+	rest, _ := tt.Find("33.9万 条评论")
+	if !(coming.X < start.X && rest.X < coming.X) {
+		t.Errorf("the panel does not come in on a click: %.0f, %.0f, %.0f", start.X, coming.X, rest.X)
+	}
+	// The cover and its name stay where they were.
+	if moved, _ := tt.Find("晴天"); moved != name {
+		t.Errorf("the name moved from %+v to %+v as the comments opened", name, moved)
+	}
 	for _, s := range []string{"33.9万 条评论", "等到专辑的那天也许我会比较好一点", "张宝珠：冷落了你", "3小时前 · 广东", "2.2万"} {
 		if !tt.HasText(s) {
 			t.Errorf("no %q in %q", s, tt.Texts())
 		}
 	}
 	shot(t, tt, "comments")
+	// They take the lyrics' place, which come back as they close.
+	if tt.HasText("故事的小黄花") {
+		t.Error("the lyrics show beside the comments")
+	}
+	a.toggleComments()
+	tt.Frame()
+	if !tt.HasText("故事的小黄花") {
+		t.Error("the lyrics did not come back as the comments closed")
+	}
+	a.toggleComments()
 
 	// The queue takes its place.
 	a.toggleQueue()
@@ -765,6 +860,9 @@ func TestComments(t *testing.T) {
 	tt.Frame()
 	if a.comments.open || tt.HasText("33.9万 条评论") {
 		t.Error("the queue did not close the comments")
+	}
+	if tt.HasText("故事的小黄花") {
+		t.Error("the lyrics show beside the queue")
 	}
 	a.toggleComments()
 	if a.showQueue {
@@ -777,5 +875,13 @@ func TestComments(t *testing.T) {
 	tt.Frame()
 	if tt.HasText("33.9万 条评论") {
 		t.Error("the comments stayed without the lyrics")
+	}
+	// The lyrics open again on themselves, not on the comments left open.
+	a.toggleLyrics()
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	if a.comments.open || tt.HasText("33.9万 条评论") || !tt.HasText("故事的小黄花") {
+		t.Error("the lyrics opened again on the comments")
 	}
 }

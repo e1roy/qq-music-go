@@ -60,7 +60,7 @@ func (a *app) columns(c *ui.Context, min float32) int {
 func (a *app) pageScroll(c *ui.Context, s *ui.ScrollState, col ui.Color, fn func()) {
 	a.tint.aim(c, col)
 	ui.Scroll(c).Grow(1).TrackScroll(s).Children(func() {
-		ui.Column(c).Padding(8, pagePadX, 28, pagePadX).Gap(14).Children(fn)
+		ui.Column(c).Padding(topHeight+8, pagePadX, barRoom+20, pagePadX).Gap(14).Children(fn)
 	})
 }
 
@@ -123,10 +123,7 @@ func (a *app) homePage(c *ui.Context) {
 		// margins add 6 to each gap.
 		ui.Column(c).Gap(34).Children(func() {
 			if len(h.guess) > 0 || len(h.daily) > 0 {
-				ui.Column(c).Gap(10).Children(func() {
-					heading(c, "今日为你推荐")
-					a.forYou(c)
-				})
+				a.forYou(c)
 			}
 			if len(h.radar) > 0 {
 				ui.Column(c).Gap(6).Children(func() {
@@ -613,7 +610,9 @@ func (a *app) listPage(c *ui.Context, p page) {
 		return
 	}
 	if l.err != "" && len(l.songs) == 0 {
-		errorRow(c, l.err, func() { a.loadList(p) })
+		a.pageScroll(c, &ui.ScrollState{}, tintNone, func() {
+			errorRow(c, l.err, func() { a.loadList(p) })
+		})
 		return
 	}
 	if l.album.IsPodcast() {
@@ -764,17 +763,17 @@ func (a *app) songTable(c *ui.Context, ls *ui.ListState, songs []qqmusic.Song, h
 		default:
 			footer()
 		}
-	}).Grow(1).Padding(0, 0, 24, 0).Children(func() {})
+	}).Grow(1).Padding(topHeight, 0, barRoom+16, 0).Children(func() {})
 	if len(songs) == 0 {
 		ui.Text(c, "暂无歌曲").TextColor(colMuted).Padding(24)
 	}
 }
 
-// tableHead is the row of a table's column titles, as shadcn's TableHeader:
-// a line below it as below every row. A table in a scrolled page is drawn at
-// the panel's edge, hence the page's padding as its margin, which rows share.
+// tableHead is the row of a table's column titles, as shadcn's TableHeader.
+// A table in a scrolled page is drawn at the panel's edge, hence the page's
+// padding as its margin, which rows share.
 func tableHead(c *ui.Context, fn func()) {
-	ui.Row(c).Height(40).Margin(0, pagePadX).Padding(0, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine).Children(fn)
+	ui.Row(c).Height(40).Margin(0, pagePadX).Padding(0, 16).Gap(16).AlignItems(ui.Center).Children(fn)
 }
 
 // headText is a column title of tableHead, aligned with the column below it.
@@ -802,7 +801,7 @@ func (a *app) columnTitles(c *ui.Context) {
 func (a *app) songRow(c *ui.Context, songs []qqmusic.Song, i int) {
 	s := songs[i]
 	playing := a.isPlaying(s)
-	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine)
+	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center)
 	hover := row.Hovered()
 	switch {
 	case hover:

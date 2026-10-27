@@ -30,6 +30,10 @@ type page struct {
 	dirid int
 	mid   string // singer or album mid
 	title string
+	// lyrics is set on the page that was under the lyrics of the song
+	// playing when a link of them went elsewhere: going back to it brings
+	// them up again. It is not part of key.
+	lyrics bool
 }
 
 func (p page) key() page { return page{kind: p.kind, id: p.id, dirid: p.dirid, mid: p.mid} }
@@ -39,7 +43,11 @@ func (a *app) current() page { return a.history[len(a.history)-1] }
 func (a *app) navigate(p page) {
 	// Over the page it goes to, the lyrics would hide it, even if it is
 	// the page already shown.
-	a.showLyrics = false
+	if a.showLyrics {
+		// Left so, going back here brings them up again.
+		a.lyricsOver(true)
+		a.showLyrics = false
+	}
 	if a.current().key() == p.key() {
 		return
 	}
@@ -47,6 +55,18 @@ func (a *app) navigate(p page) {
 	a.future = nil
 	a.main.Y = 0
 	a.enter(p)
+}
+
+// lyricsOver records on the page shown whether the lyrics are up over it.
+func (a *app) lyricsOver(on bool) {
+	a.history[len(a.history)-1].lyrics = on
+}
+
+// closeLyrics takes the lyrics down, and off the page shown: coming back to
+// it then shows the page, not them.
+func (a *app) closeLyrics() {
+	a.showLyrics = false
+	a.lyricsOver(false)
 }
 
 // podcastHome is 小宇宙 as the user left it: QQ Music's podcasts, or
@@ -74,7 +94,7 @@ func (a *app) back() {
 	if len(a.history) > 1 {
 		a.future = append(a.future, a.current())
 		a.history = a.history[:len(a.history)-1]
-		a.showLyrics = false
+		a.showLyrics = a.current().lyrics
 		a.enter(a.current())
 	}
 }
@@ -83,7 +103,7 @@ func (a *app) forward() {
 	if n := len(a.future); n > 0 {
 		a.history = append(a.history, a.future[n-1])
 		a.future = a.future[:n-1]
-		a.showLyrics = false
+		a.showLyrics = a.current().lyrics
 		a.enter(a.current())
 	}
 }

@@ -28,6 +28,7 @@ func (a *app) startSession() {
 			if errors.Is(err, qqmusic.ErrNotLoggedIn) {
 				a.api.Logout()
 				a.saveCredential()
+				a.closeUserMenu()
 				a.toast("登录已过期，请重新登录")
 				return
 			}
@@ -92,9 +93,15 @@ func (a *app) setLiked(songs []qqmusic.Song) {
 	}
 }
 
+// closeUserMenu drops the account's popup, with the login it is about.
+func (a *app) closeUserMenu() {
+	a.userMenu, a.userPopup = false, presence{}
+}
+
 func (a *app) logout() {
 	a.api.Logout()
 	a.saveCredential()
+	a.closeUserMenu()
 	a.user = qqmusic.User{}
 	a.myLists, a.favLists = nil, nil
 	a.liked, a.liking = map[int64]bool{}, map[int64]bool{}

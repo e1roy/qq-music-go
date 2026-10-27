@@ -5,7 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/shader"
 
 	"qqmusic/internal/qqmusic"
 )
@@ -49,9 +51,13 @@ const (
 const (
 	sidebarWidth = 240
 	barHeight    = 76
-	topHeight    = 52  // the title bar at the top of the page
-	tintHeight   = 360 // how far down the page's color fades out
-	queueWidth   = 340 // the queue, a column on the right of the panel
+	// barRoom is how much of the panel's bottom the player bar floats over,
+	// with the gaps above and below it: what scrolls ends past it, and the
+	// cards beside the page stop above it.
+	barRoom    = barHeight + 2*8
+	topHeight  = 52  // the title bar at the top of the page
+	tintHeight = 360 // how far down the page's color fades out
+	queueWidth = 340 // the queue, a column on the right of the panel
 
 	// pagePadX is how far a page's content is inset from the panel's edge.
 	// The title bar and the table rows, which are drawn at that edge, use it
@@ -96,19 +102,22 @@ func (a *app) view(c *ui.Context) {
 	if c.Shortcut(0, ui.KeySpace) {
 		a.togglePlay()
 	}
-	if c.Shortcut(ui.Alt, ui.KeyLeft) {
-		a.back()
-	}
-	if c.Shortcut(ui.Alt, ui.KeyRight) {
-		a.forward()
-	}
+	// The mouse's side buttons come as KeyBack and KeyForward, as do the
+	// browser keys of some keyboards. They are taken here, so that a key
+	// pressed as another is, but they go below, after the page shown is
+	// compared: a page that changed before it would come in the pass the
+	// key is taken in, which a frame builds again, at its place at once,
+	// without the pose that brings it. A click on the top bar's buttons
+	// changes the page after that comparison too.
+	back := c.Shortcut(0, ui.KeyBack) || c.Shortcut(ui.Alt, ui.KeyLeft)
+	forward := c.Shortcut(0, ui.KeyForward) || c.Shortcut(ui.Alt, ui.KeyRight)
 
-	// As shadcn's inset sidebar: the sidebar and the player bar are the
-	// frame, the page an inset panel within it, up to the top of the
-	// window, with the title bar on its color.
+	// As shadcn's inset sidebar: the sidebar is the frame, the page an inset
+	// panel within it, up to the top of the window, with the title bar on
+	// its color. The player bar floats over the bottom of the panel.
 	ui.Row(c).Fill().Background(colWindow).Gap(8).PaddingX(8).AlignItems(ui.Stretch).Children(func() {
 		a.sidebar(c)
-		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Padding(0, 0, 8, 0).Children(func() {
 			ui.Box(c).Height(8).DragWindow()
 			ui.Row(c).Grow(1).AlignItems(ui.Stretch).MinHeight(0).Children(func() {
 				// The queue is a column of the panel, on its right, on the
@@ -124,11 +133,37 @@ func (a *app) view(c *ui.Context) {
 						if p := a.current().key(); p != a.pageShown {
 							a.pageShown, a.pageIn = p, false
 						}
+						if back {
+							a.back()
+						}
+						if forward {
+							a.forward()
+						}
 						if !a.showLyrics || !a.lyricsShow.rest {
-							a.topbar(c)
 							pg := ui.Column(c.Key(a.pageShown)).Grow(1).MinHeight(0)
 							appear(c, pg, &a.pageIn, pageOut, pageSpring)
 							pg.Children(func() { a.content(c) })
+							// The title bar floats over the top of the page, which
+							// scrolls under it (pages start topHeight down), frosted
+							// as the bottom is under the player bar: from its bottom
+							// edge up, sharp to blurred, under a wash of the color
+							// the top of the page has.
+							// Up from its bottom edge, the wash thickens along a
+							// smoothstep, light at first and heavy only towards the
+							// top, not evenly: an even ramp shows where it starts.
+							ui.Box(c.Key("topFrost")).Absolute().Top(0).Left(0).Right(0).Height(topHeight).PassThrough().
+								Material(glass.Blur{Radius: 18, Mask: &ui.LinearGradient{From: ui.RGB(0, 0, 0), To: ui.Transparent, Angle: 180, Start: 0.5, End: 1}}).
+								Draw(func(p *ui.Painter, r ui.Rect) {
+									top := colPanel.Mix(a.tint.color(p), 0.45)
+									var stops [9]ui.GradientStop
+									for i := range stops {
+										at := float32(i) / float32(len(stops)-1)
+										x := min((1-at)/0.45, 1) // up from the bottom
+										stops[i] = ui.GradientStop{Color: top.Alpha(0.98 * x * x * (3 - 2*x)), At: at}
+									}
+									p.FillGradient(r, ui.LinearGradient{Angle: 180, Stops: stops[:]}, 0)
+								})
+							ui.Box(c).Absolute().Top(0).Left(0).Right(0).Children(func() { a.topbar(c) })
 						}
 					})
 					// The room of the queue: its own, kept built while it
@@ -146,7 +181,11 @@ func (a *app) view(c *ui.Context) {
 						qw = queueWidth
 					}
 					if a.showLyrics && a.lyricsShow.rest {
-						if a.queueShow.built || a.commentsShow.built {
+						// A panel that comes in opens the room in its first
+						// frame too: clipped, it would not be built there,
+						// and would then show at its place without the pose
+						// that brings it.
+						if a.sidePanel() || a.queueShow.built || a.commentsShow.built {
 							qw = queueWidth
 						}
 						qw = qslot.Jump("width", qw)
@@ -154,10 +193,25 @@ func (a *app) view(c *ui.Context) {
 						qw = qslot.AnimateTo("width", qw, sideSpring)
 					}
 					qslot.Width(qw)
-					// The lyrics cover the panel whole, the room too.
+					// The lyrics cover the panel whole, the room too, and the
+					// bar's room below, where the bar sits on them as part of
+					// the page. They come out of the cover in the bar, and go
+					// back into it, through genieShader, drawn as they are
+					// once open.
 					if a.lyricsShow.shown(c, a.showLyrics) {
 						lyrics := ui.Column(c.Key("lyrics")).Absolute().Top(0).Left(0).Right(0).Bottom(0).Background(colPanel)
-						a.lyricsShow.animate(c, lyrics, lyricsOut, lyricsSpring)
+						first := !a.lyricsShow.in
+						a.lyricsShow.animate(c, lyrics, ui.Pose{}, ui.Pose{}, lyricsSpring)
+						if first {
+							lyrics.Jump("genie", 1)
+						}
+						gone := float32(1)
+						if a.showLyrics {
+							gone = 0
+						}
+						if g := lyrics.AnimateTo("genie", gone, lyricsSpring); g > 0.001 {
+							lyrics.Effect(genieShader.Effect(shader.Options{Uniforms: map[string]any{"Progress": g, "Target": genieCover}}))
+						}
 						lyrics.Children(func() {
 							a.nowPlayingPage(c)
 							// Where it leaves room, it moves the window as the title bar.
@@ -175,10 +229,25 @@ func (a *app) view(c *ui.Context) {
 							a.commentsPanel(c)
 						}
 					})
+					// Last, over the page, the lyrics and the panels. What
+					// scrolls under the bar's room is frosted, as acrylic: a
+					// hint of it shows around the bar, blurred and mostly
+					// covered, rather than the page itself. Over the lyrics,
+					// the frost fades as the bar's card does, for the bar to
+					// be one with them.
+					// The frost grows from the top down, sharp to blurred and
+					// clear to covered: it starts at the bar's top edge, where
+					// its own top is not seen, and blurs on down the gaps
+					// beside and below the bar.
+					a.barFace(ui.Box(c.Key("barFrost")).Absolute().Left(0).Right(0).Bottom(0).Height(barHeight + 8).PassThrough().
+						Material(glass.Blur{Radius: 14, Mask: &ui.LinearGradient{From: ui.RGB(0, 0, 0), To: ui.Transparent, Angle: 0}}).
+						Draw(func(p *ui.Painter, r ui.Rect) {
+							p.FillGradient(r, ui.LinearGradient{From: colPanel.Alpha(0.8), To: colPanel.Alpha(0), Angle: 0}, 0)
+						}))
+					a.playerBar(c)
 				})
 				a.windowControls(c)
 			})
-			a.playerBar(c)
 		})
 	})
 	a.loginDialog(c)
@@ -324,7 +393,8 @@ func ghostButton(c *ui.Context, ic *ui.SVG, enabled bool, tip string, spin bool)
 func (a *app) searchBox(c *ui.Context) {
 	s := &a.search
 	scope := a.searchScope()
-	box := ui.Row(c).Width(360).MinWidth(140).Height(32).Radius(radiusMd).Background(colInputBg).Border(1, colInput).PaddingX(10).Gap(8).AlignItems(ui.Center)
+	box := ui.Row(c).Width(360).MinWidth(140).Height(32).Radius(radiusMd).Background(colInputBg).Border(1, colInput).PaddingX(10).Gap(8).AlignItems(ui.Center).Cursor(ui.CursorText)
+	var in ui.Element
 	box.Children(func() {
 		ui.Icon(c, icSearch).FontSize(16).TextColor(colMuted)
 		placeholder, label := "搜索歌曲、歌手、专辑…", "搜索歌曲"
@@ -334,7 +404,9 @@ func (a *app) searchBox(c *ui.Context) {
 		case scopeXiaoyuzhou:
 			placeholder, label = "搜索小宇宙官方的节目、单集…", "搜索小宇宙"
 		}
-		in := ui.TextInputBase(c, &s.input).Placeholder(placeholder).Label(label).Grow(1).FontSize(14).FocusBind(&s.focus, true)
+		// The input fills the box: its text is one line, but a press
+		// beside it, above or below it, has to reach it too.
+		in = ui.TextInputBase(c, &s.input).Placeholder(placeholder).Label(label).Grow(1).AlignSelf(ui.Stretch).FontSize(14).FocusBind(&s.focus, true)
 		in.OnTextKey(a.searchKeys)
 		// Typing opens the menu, and asks for what the text may become
 		// once it rests: what was chosen before is not what is typed.
@@ -398,6 +470,14 @@ func (a *app) searchBox(c *ui.Context) {
 			}
 		}
 	})
+	// A press the input did not take, on the icon or in the padding beside
+	// it, is the box's: it gives the focus to the input all the same, and
+	// opens the menu as a press on the input does. The focus came by the
+	// press, so the guard above must not let it go.
+	if box.Clicked() {
+		in.Focus()
+		s.open, s.focused = true, true
+	}
 	a.searchMenu(c, box)
 }
 
@@ -407,14 +487,18 @@ func (a *app) searchBox(c *ui.Context) {
 func (a *app) searchMenu(c *ui.Context, anchor ui.Element) {
 	s := &a.search
 	q := strings.TrimSpace(s.input)
-	if !s.open || q == "" && len(a.set.Searches) == 0 {
+	// The menu stays built while it goes, so that it can leave as it came.
+	if !s.menu.shown(c, s.open && (q != "" || len(a.set.Searches) > 0)) {
 		return
 	}
 	words := a.searchWords()
-	ui.PopoverBase(c, anchor, &s.open, func(panel ui.Element) {
+	// The panel is open while it is built, which leaves open the box's: a
+	// press outside it, or Escape, closes the panel and reports it.
+	open := true
+	panel := ui.PopoverBase(c, anchor, &open, func(panel ui.Element) {
 		panel.AttachTo(anchor, ui.AnchorBottomStart, ui.AnchorTopStart).Margin(6, 0, 0, 0).
 			Padding(4).Gap(1).Width(360).Radius(radiusLg).Background(colCard).Border(1, colLine).
-			Shadow(0, 8, 24, 0, colShadow).KeepFocus()
+			Shadow(0, 8, 24, 0, colShadow).KeepFocus().TransformOrigin(0, 0)
 		// A row picks its text, which the box takes and searches; i is the
 		// suggestion it is, -1 for a row the arrows cannot reach.
 		row := func(key string, i int, label string, ic *ui.SVG) ui.Element {
@@ -458,6 +542,10 @@ func (a *app) searchMenu(c *ui.Context, anchor ui.Element) {
 			}
 		}
 	})
+	if panel.Dismissed() {
+		s.open = false
+	}
+	s.menu.animate(c, panel, menuOut, menuOut, menuMotion)
 }
 
 // userArea is the user at the foot of the sidebar, with a menu, or a way
@@ -477,7 +565,7 @@ func (a *app) userArea(c *ui.Context) {
 
 func (a *app) userRow(c *ui.Context) {
 	row := ui.Row(c).Grow(1).MinWidth(0).Padding(10, 16).Gap(12).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
-	if row.Hovered() {
+	if row.Hovered() || a.userMenu {
 		row.Background(colHover)
 	}
 	if !a.api.LoggedIn() {
@@ -501,20 +589,41 @@ func (a *app) userRow(c *ui.Context) {
 	if a.user.VIP {
 		sub = "绿钻会员"
 	}
-	row.Menu(func(m *ui.Menu) {
-		if m.Item("刷新我的歌单").Chosen() {
-			a.loadMine()
-		}
-		m.Separator()
-		if m.Item("退出登录").Chosen() {
-			a.logout()
-		}
-	}).Children(func() {
+	row.Children(func() {
 		a.avatar(c, a.user.Avatar, nick, 32)
 		ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
 			ui.Text(c, nick).FontSize(14).FontWeight(500).SingleLine()
 			ui.Text(c, sub).FontSize(12).TextColor(colMuted).SingleLine()
 		})
+	})
+	if row.Clicked() {
+		a.userMenu = !a.userMenu
+	}
+	// The account's menu, pulled up from the row as the qualities are from
+	// their badge, rather than the system's own menu below it.
+	popupUp(c, &a.userPopup, row, &a.userMenu, func(panel ui.Element) {
+		panel.AttachTo(row, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 6, 0).
+			Padding(4).Gap(1).Width(188).Radius(radiusLg).Background(colCard).Border(1, colLine).
+			Shadow(0, 8, 24, 0, colShadow)
+		item := func(key string, ic *ui.SVG, label string) ui.Element {
+			it := ui.Row(c.Key(key)).Padding(7, 8).Gap(8).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+			if it.Hovered() {
+				it.Background(colHover)
+			}
+			it.Children(func() {
+				ui.Icon(c, ic).FontSize(15).TextColor(colMuted)
+				ui.Text(c, label).FontSize(13)
+			})
+			return it
+		}
+		if item("refresh", icRefresh, "刷新我的歌单").Clicked() {
+			a.userMenu = false
+			a.loadMine()
+		}
+		ui.Box(c).Height(1).Margin(3, 2).Background(colLine)
+		if item("logout", icLogout, "退出登录").Clicked() {
+			a.logout() // which closes this
+		}
 	})
 }
 

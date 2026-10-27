@@ -293,7 +293,7 @@ func (a *app) showPage(c *ui.Context, p page, l *songList) {
 		default:
 			a.episodesEnd(c, p, l)
 		}
-	}).Grow(1).Padding(0, 0, 24, 0).Children(func() {})
+	}).Grow(1).Padding(topHeight, 0, barRoom+16, 0).Children(func() {})
 }
 
 // episodeTitles is the head of a podcast's episodes, as columnTitles.
@@ -314,7 +314,7 @@ func (a *app) episodeRow(c *ui.Context, l *songList, i int) {
 	e := l.eps[i]
 	s := e.Song
 	playing := a.isPlaying(s)
-	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine)
+	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center)
 	hover := row.Hovered()
 	switch {
 	case hover:

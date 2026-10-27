@@ -33,22 +33,26 @@ type commentList struct {
 
 const commentPage = 20
 
-// commentsShown is whether the comments are beside the lyrics: they go
-// with them, and come back with them.
+// commentsShown is whether the comments are beside the lyrics, in their
+// place: they go with them, and come back with them only by back.
 func (a *app) commentsShown() bool { return a.showLyrics && a.comments.open }
 
 // sidePanel is whether a panel, the queue or the comments, takes the
 // right of the page.
 func (a *app) sidePanel() bool { return a.showQueue || a.commentsShown() }
 
-// toggleLyrics shows or hides the page of the song playing. Its comments
-// load with it, for their number to show on it.
+// toggleLyrics shows or hides the page of the song playing. It opens on
+// the lyrics, not the comments left open; those load with it, for their
+// number to show on it.
 func (a *app) toggleLyrics() {
-	a.showLyrics = !a.showLyrics
 	if a.showLyrics {
-		a.syncNotes()
-		a.syncComments()
+		a.closeLyrics()
+		return
 	}
+	a.showLyrics = true
+	a.comments.open = false
+	a.syncNotes()
+	a.syncComments()
 }
 
 // toggleQueue shows or hides the queue, in place of the comments.

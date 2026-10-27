@@ -23,7 +23,9 @@ func (a *app) singerPage(c *ui.Context, p page) {
 			return
 		}
 		if l.err != "" {
-			errorRow(c, l.err, func() { a.loadList(p) })
+			a.pageScroll(c, &ui.ScrollState{}, tintNone, func() {
+				errorRow(c, l.err, func() { a.loadList(p) })
+			})
 			return
 		}
 	}
@@ -58,7 +60,7 @@ func (a *app) singerPage(c *ui.Context, p page) {
 				a.albumRow(c, l.albums.items, r, cols)
 			}
 		})
-	}).Grow(1).Padding(0, 0, 24, 0).Children(func() {})
+	}).Grow(1).Padding(topHeight, 0, barRoom+16, 0).Children(func() {})
 }
 
 // singerBar switches a singer's page between their songs and their

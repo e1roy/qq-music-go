@@ -58,15 +58,16 @@
 | `icons.go` | Lucide 风格 SVG 图标集合与应用 Logo | `icLogo`、`icon`/`filledIcon`、`icHome`…`icWeChat`、`icComment`/`icThumb`、`icSettings`/`icDrive`/`icFolder`、`icFlame`/`icTrending`/`icStar` |
 | `images.go` | 图片异步下载、缩放、缓存、按帧淘汰；同时缓存图片主色 | `images`、`imageEntry`、`imageBudget`（48 MiB）、`newImages`、`frame`、`get`、`peek`、`color`、`shrink` |
 | `palette.go` | 从封面提取主色（median cut + Palette 目标），生成页面顶部渐变色；颜色过渡 | `swatch`、`target`、`paletteTargets`、`dominantColor`、`quantize`、`box`、`hsl`、`tint`、`oklch`、`tintNone`、`tintFade`、`pageTint` |
-| `motion.go` | 页面/歌词/队列的进入退出动画、歌手页页签行级动画、首页「换一批」卡片刷新动画 | `pageOut`/`pageSpring`、`lyricsOut`/`lyricsSpring`、`queueOut`/`panelOut`/`sideSpring`、`appear`、`presence`、`tabMotion`、`cardOut`/`cardSpring`、`refreshMotion` |
+| `motion.go` | 页面/歌词/队列的进入退出动画、歌手页页签行级动画、首页「换一批」卡片刷新动画、歌词换行时字号/字重/颜色与上下滚动（`lyricScroll`：换行前量下一句的位置，列表跳转那一帧按老位置绘制再滑到新位置） | `pageOut`/`pageSpring`、`lyricsOut`/`lyricsSpring`、`queueOut`/`panelOut`/`sideSpring`、`appear`、`presence`、`tabMotion`、`cardOut`/`cardSpring`、`refreshMotion`、`lyricGrow`/`lyricFade`/`lyricWash`/`lyricSlide`、`lyricScroll` |
 | `skeleton.go` | 各种加载骨架屏 | `skeleton`、`bone`、`bar`、`headingSkeleton`、`songCardsSkeleton`、`forYouSkeleton`、`playlistSkeleton`、`singerSkeleton`、`topChartsSkeleton`、`chipsSkeleton`、`songRowsSkeleton`、`listSkeleton`、`lyricsSkeleton`、`commentsSkeleton` |
 | `memory.go` | 延迟把 Go 堆内存归还系统 | `trimmer`、`trimDelay`（3s）、`soon` |
 | `app_test.go` | 无窗口 UI 测试与联网页面走查 | `fakePlatform`、`newTestApp`、`settle`、`shot`、`TestPages`、`TestLRC`、`TestModeMenu`、`TestQualityMenu`、`TestSearchSinger`、`TestDisplayName`、`TestRecent`、`TestSearchHistory`、`TestComments` |
-| `behavior_test.go` | 离线特征测试（`offlineTransport` 让所有请求立即失败，不访问任何服务）：队列增删、四种模式切歌、失败跳过、音质徽章文字、持久化兼容（`testdata/v1.0.1/` 是 v1.0.1 写出的文件：仍可读、保存后可读回、`xyz.json` 迁移为 `xiaoyuzhou.json`、旧 `xyz_official` 生效、未知播放模式回退为默认）、猜你喜欢未登录时不改动原队列、搜索框作用域 | `newOfflineApp`、`drain`、`episodes`、`TestQueueEdits`、`TestNextPrev`、`TestPlayFailures`、`TestQualityLabel`、`TestPersistedFiles`、`TestPlayRadio`、`TestSearchScope`、`TestLogoutRadio`、`TestLikeRace`（`fakeLikes`：模拟服务端的「我喜欢」，控制读取的返回顺序）、`TestShowLabel`、`TestFrameBudget`（静止页不重建、播放中每秒约 4 次、歌词页约 10 次）、`TestPlayFromCache`（命中缓存不取播放地址、显示当时的实际音质、未登录不命中）、`TestSettings`（齿轮进入设置页而不弹用户菜单、改上限并保存、清空缓存）、`TestDownloadName`（下载文件名带歌名与地址的扩展名） |
+| `behavior_test.go` | 离线特征测试（`offlineTransport` 让所有请求立即失败，不访问任何服务）：队列增删、四种模式切歌、失败跳过、音质徽章文字、持久化兼容（`testdata/v1.0.1/` 是 v1.0.1 写出的文件：仍可读、保存后可读回、`xyz.json` 迁移为 `xiaoyuzhou.json`、旧 `xyz_official` 生效、未知播放模式回退为默认）、猜你喜欢未登录时不改动原队列、搜索框作用域 | `newOfflineApp`、`drain`、`episodes`、`TestQueueEdits`、`TestNextPrev`、`TestPlayFailures`、`TestQualityLabel`、`TestPersistedFiles`、`TestPlayRadio`、`TestSearchScope`、`TestLogoutRadio`、`TestLikeRace`（`fakeLikes`：模拟服务端的「我喜欢」，控制读取的返回顺序）、`TestShowLabel`、`TestFrameBudget`（静止页不重建、播放中每秒约 4 次、歌词页约 10 次）、`TestPlayFromCache`（命中缓存不取播放地址、显示当时的实际音质、未登录不命中）、`TestSettings`（齿轮进入设置页并收起用户弹窗、改上限并保存、清空缓存）、`TestDownloadName`（下载文件名带歌名与地址的扩展名） |
 | `zz_feed_test.go` | 一次性探针：用 `%AppData%` 中的真实凭证请求首页信息流；带 `//go:build probe`，只在 `-tags probe` 时编译 | `TestZZFeed` |
 | `podcast_test.go` | 小宇宙页、节目页、搜索结果的离线 UI 测试；我听过的节目跨次启动保存 | `TestPodcasts`、`TestSearchPodcastsTab` |
 | `xiaoyuzhou_test.go` | 小宇宙官方的离线 UI 测试：未登录、来源切换、推荐/分类/榜单/编辑精选/订阅、不登录 QQ 音乐播放单集、节目页滚到底加载、节目页显示主播与订阅/取消订阅、主播页关注/取关、`xiaoyuzhou.json` 保存与退出 | `TestXiaoyuzhou` |
 | `palette_test.go` | 主色提取与 tint 的单元测试 | `TestDominantColor`、`TestTint` |
+| `motion_test.go` | 歌词换行滚动的测试：列表跳到下一句那一帧歌词仍画在原位、之后滑过一句的高度；歌词页量的是当前句的下句（含上方空白行偏移） | `TestLyricScroll`、`TestLyricScrollMeasuresTheComingLine` |
 
 ## 2.1 `internal/playqueue`（播放队列规则）
 

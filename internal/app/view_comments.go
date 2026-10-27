@@ -11,31 +11,31 @@ import (
 )
 
 // commentsTab opens the comments beside the lyrics; on it, how many there
-// are, once known.
+// are, once known. Its label and value are the album line's above, so that
+// the two read as one block and their values line up.
 func (a *app) commentsTab(c *ui.Context, s qqmusic.Song) {
 	cm := &a.comments
-	label := "评论"
-	if a.commentsOf(s) && cm.total > 0 {
-		label += " " + formatCount(int64(cm.total))
-	}
-	// Over the blurred cover: white, a little.
-	b := ui.Row(c).Height(30).PaddingX(12).Gap(6).Radius(15).AlignItems(ui.Center).Cursor(ui.CursorPointer).
-		Background(ui.RGBA(255, 255, 255, 0.06)).Border(1, ui.RGBA(255, 255, 255, 0.16))
-	fg := colText
+	// Toggled after the build, not in it: the panels' room is sized before
+	// the lyrics are built, so toggled in it, the panel would be built
+	// first in a room still shut, clipped, and then show at its place at
+	// once, without the pose that brings it.
+	b := rowUnderName(c).Cursor(ui.CursorPointer).OnClick(a.toggleComments)
+	icon, label, value := colMuted, colMuted, colText
 	switch {
 	case cm.open:
-		b.Background(colAccent.Alpha(0.16)).Border(1, colAccent.Alpha(0.5))
-		fg = colAccent
+		b.Background(colAccent.Alpha(0.12))
+		icon, label, value = colAccent, colAccent, colAccent
 	case b.Hovered():
-		b.Background(ui.RGBA(255, 255, 255, 0.12))
+		b.Background(colGhost)
+		icon, label = colText, colText
 	}
 	b.Children(func() {
-		ui.Icon(c, icComment).FontSize(14).TextColor(fg)
-		ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(fg).NoWrap()
+		ui.Icon(c, icComment).FontSize(14).TextColor(icon)
+		ui.Text(c, "评论").FontSize(12).TextColor(label).NoWrap()
+		if a.commentsOf(s) && cm.total > 0 {
+			ui.Text(c, formatCount(int64(cm.total))).FontSize(13).TextColor(value).FontFeatures("tnum").NoWrap()
+		}
 	})
-	if b.Clicked() {
-		a.toggleComments()
-	}
 }
 
 // commentsPanel is the comments of the song playing, beside its lyrics,
@@ -51,10 +51,10 @@ func (a *app) commentsPanel(c *ui.Context) {
 	// A card as the queue's, in the same room. Over the lyrics, it slides
 	// by itself.
 	col := ui.Column(c.Key("comments")).Absolute().Top(0).Left(0).Bottom(0).Width(queueWidth)
-	a.commentsShow.animate(c, col, panelOut, sideSpring)
+	a.commentsShow.animate(c, col, panelIn, panelOut, sideSpring)
 	col.Children(func() {
 		ui.Box(c).Height(topHeight).DragWindow()
-		ui.Column(c).Grow(1).MinHeight(0).Margin(0, 8, 8, 0).Radius(radiusXl).Background(colCard).Border(1, colLine).Clip().Children(func() {
+		ui.Column(c).Grow(1).MinHeight(0).Margin(0, 8, barRoom, 0).Radius(radiusXl).Background(colCard).Border(1, colLine).Clip().Children(func() {
 			a.commentsCard(c, sub, mine)
 		})
 	})

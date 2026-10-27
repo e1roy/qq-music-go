@@ -43,14 +43,15 @@ type platform interface {
 type cookie struct{ Name, Value, Domain, Path string }
 
 type app struct {
-	plat   platform
-	api    *qqmusic.Client
-	player *player.Player
-	images *images
-	tint   tintFade // the color of the top of the page, from its picture
-	trim   trimmer
-	store  store.Dir // where the login and settings are saved
-	set    settings
+	plat    platform
+	api     *qqmusic.Client
+	player  *player.Player
+	images  *images
+	tint    tintFade // the color of the top of the page, from its picture
+	barTint tintFade // the wash of the player bar, from the cover playing
+	trim    trimmer
+	store   store.Dir // where the login and settings are saved
+	set     settings
 
 	// Navigation.
 	history []page
@@ -126,8 +127,10 @@ type app struct {
 		// focused. typing is closed when the text changes, dropping the
 		// rest it waited for; sugGen drops what the text before asked the
 		// service for. sel is the suggestion the arrows are on, -1 for none.
-		// focus is the box's FocusBind, to let the focus go.
+		// focus is the box's FocusBind, to let the focus go. menu is the
+		// menu below the box, built while it goes too.
 		open    bool
+		menu    presence
 		focused bool
 		focus   bool
 		typing  chan struct{}
@@ -153,7 +156,8 @@ type app struct {
 	favLists  []qqmusic.Playlist
 	liked     map[int64]bool
 	liking    map[int64]bool // the likes sent and not yet done, as liked has them
-	userMenu  bool
+	userMenu  bool           // the popup of the account, above the user row
+	userPopup presence       // which keeps it built while it goes
 
 	// 最近播放, the song played last first.
 	recent     []qqmusic.Song
@@ -186,13 +190,16 @@ type app struct {
 	// shown, the popups, the slider dragged, the scrolls.
 	showLyrics       bool
 	showQueue        bool
-	modeOpen         bool // the popup of play modes
-	qualityOpen      bool // the popup of qualities
+	modeOpen         bool     // the popup of play modes
+	modePopup        presence // which keeps it built while it goes
+	qualityOpen      bool     // the popup of qualities
+	qualityPopup     presence // which keeps it built while it goes
 	seekValue        float64
 	seeking          bool
 	volumeWasPressed bool
 	lyricShown       int
 	lyricList        ui.ListState
+	lyricScroll      lyricScroll
 	lyricHold        time.Time // the user scrolled the lyrics: follow again after
 	queueList        ui.ListState
 	lyricsBg         *ui.Bitmap // the cover behind the lyrics, kept as the next comes

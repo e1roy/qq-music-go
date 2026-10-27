@@ -515,7 +515,7 @@ func (a *app) xiaoyuzhouEpisodeRow(c *ui.Context, eps []xiaoyuzhou.Episode, i in
 	s := episodeSong(e, pod)
 	playing := a.isPlaying(s)
 	play := func() { a.playList(episodeSongs(eps, pod), i) }
-	row := ui.Row(c.Key(e.Eid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(colLine)
+	row := ui.Row(c.Key(e.Eid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center)
 	hover := row.Hovered()
 	switch {
 	case hover:
@@ -644,7 +644,9 @@ func (a *app) xiaoyuzhouShowPage(c *ui.Context, p page) {
 	if sh == nil || !sh.loaded {
 		a.tint.aim(c, tintNone)
 		if sh != nil && sh.err != "" {
-			errorRow(c, sh.err, func() { a.loadXiaoyuzhouShow(p.mid, true) })
+			a.pageScroll(c, &ui.ScrollState{}, tintNone, func() {
+				errorRow(c, sh.err, func() { a.loadXiaoyuzhouShow(p.mid, true) })
+			})
 		} else {
 			a.listSkeleton(c, page{kind: pageAlbum})
 		}
@@ -673,7 +675,7 @@ func (a *app) xiaoyuzhouShowPage(c *ui.Context, p page) {
 				}
 			})
 		}
-	}).Grow(1).Padding(0, 0, 24, 0).Children(func() {})
+	}).Grow(1).Padding(topHeight, 0, barRoom+16, 0).Children(func() {})
 }
 
 func (a *app) xiaoyuzhouShowHeader(c *ui.Context, p page, sh *xiaoyuzhouShow) {

@@ -2,7 +2,7 @@
 
 面向在本仓库工作的 AI 代理与开发者：项目地图（codemap）、硬性约束、开发约定、常用命令与已知坑。改动代码前先读本文件；新增/删除文件后同步更新 `CODEMAP.md`。
 
-快速入口：动手前看 §2 硬性约束；找文件/符号看 `CODEMAP.md` 的「按任务快速定位」；理解数据流看 §5；排查问题看 §8 已知坑；提交前过一遍 §10 检查清单。
+快速入口：动手前看 §2 硬性约束；找文件/符号看 `CODEMAP.md` 的「按任务快速定位」；理解数据流看 §5；排查问题看 §8 已知坑；提交前过一遍 §10 检查清单，提交与发布按 §10.1 的顺序执行。
 
 ## 1. 项目是什么
 
@@ -53,6 +53,7 @@
 | 正式打包（exe + NSIS 安装包） | `go tool mygo build` |
 | 开发模式一键脚本 | `.\启动run.bat`（即 `go tool mygo dev`：改代码保存后自动重编译重启，产物在 `.mygo/dev/`） |
 | 打包脚本 | `.\打包build.bat [x.y.z]`（传版本号会先写入 `mygo.json`；不传则用现有版本） |
+| 发布 GitHub Release（先打包，见 §10.1） | `gh release create v<version> build/release/QQMusic_v<version>_Portable.exe build/release/QQMusic_v<version>_Setup.exe --title "QQ音乐桌面版 v<version>" --notes "…"` |
 | 接口冒烟测试（公开接口） | `go run ./cmd/probe` |
 | 扫码登录后测用户接口/播放地址 | `go run ./cmd/probe -login qq -cred cred.json` |
 | 内存诊断页 | `$env:QQMUSIC_PPROF="127.0.0.1:6060"; go run ./cmd/qqmusic`，然后打开 `http://127.0.0.1:6060/mem` |
@@ -197,6 +198,7 @@ playList / playAt
 - 列表用 `ui.List` + 稳定 key；行内不要保存元素。
 - 滚动容器用 `ui.Scroll(...).TrackScroll(&state)`；页面滚动状态是 `a.main`。
 - 动画用 `appear`/`presence`/`tabMotion`；只改变绘制时用 `AnimatePose` + `AnimationFrame`，需要下一帧时用 `c.After`。
+- `ui.ListState.ScrollTo` 是瞬跳，没有动画可设：歌词换行的上下滚动是 `motion.go` 的 `lyricScroll` —— 跳转前量出下一句离中间多远，跳转那一帧把各行 `Translate` 回原位再滑回去。行内的动画状态靠 `c.Key(i)` 的身份跨帧保留；测量用 `ui.Handle` + `.Bind`（`Handle.Bounds` 给上一帧的布局位置）。
 - 页面顶部渐变色由 `a.pageTint(coverURL)` 计算，经 `a.tint.band(tintHeight)` 绘制。
 
 ### 6.4 接口
@@ -305,6 +307,37 @@ playList / playAt
 - [ ] 新页面/接口已更新 `CODEMAP.md`
 - [ ] 未提交 `cred.json`、`build/`、`*.syso` 等生成物
 - [ ] 用户可见文案为中文，代码注释为英文
+- [ ] 已用 `.\打包build.bat` 生成 `build/release/` 下的两个 exe（§10.1）
+- [ ] 已 push 代码与 tag，并创建 GitHub Release、上传两个 exe（§10.1）
+
+### 10.1 提交与发布（每次提交都按这个顺序）
+
+用户要求：**提交时必须先打包 exe，再推送远程，最后发一个带附件的 GitHub Release**。只 `git push`、甚至只推 tag 都不算完成。
+
+1. **定版本**：改 `mygo.json` 的 `version`，或直接 `.\打包build.bat x.y.z`（会先把版本写进 `mygo.json` 再打包）。版本号 `x.y.z`，tag 为 `vx.y.z`，两者必须一致。
+2. **打包**：`.\打包build.bat`（不带参数则沿用 `mygo.json` 的版本）。打包前先关掉正在运行的 QQMusic，否则复制 exe 会失败。产物：
+   - `build/release/QQMusic_v<version>_Portable.exe`（免安装，单文件即应用）
+   - `build/release/QQMusic_v<version>_Setup.exe`（NSIS 安装包）
+3. **验证**：`go test -short ./...`、`go vet ./...`、`go tool mygo vet .`，并按 §10 清单过一遍。
+4. **提交并推送**：
+
+   ```powershell
+   git add -A; git commit -m "..."
+   git tag v<version>
+   git push; git push origin v<version>
+   ```
+
+   已有 `v<version>` tag（例如只是补发 Release）就不要重建或移动它，直接推送并发布。
+5. **发 Release**（`gh` 已登录，发布前 `gh auth status` 确认账号是 `e1roy`）：
+
+   ```powershell
+   gh release create v<version> build/release/QQMusic_v<version>_Portable.exe build/release/QQMusic_v<version>_Setup.exe --verify-tag --title "QQ音乐桌面版 v<version>" --notes "中文说明"
+   ```
+
+   - 标题固定 `QQ音乐桌面版 v<version>`，两条附件缺一不可。
+   - `build/` 已被 git 忽略，exe 只能通过 `gh release create/upload` 上传，不要为了让它们入库而改 `.gitignore`。
+   - 说明用中文概括本次改动，末句沿用「Portable 免安装，Setup 为 NSIS 安装包；旧数据可直接沿用。」。
+   - Release 已存在、只是补传附件时用 `gh release upload v<version> <两个 exe 路径> --clobber`，不要删了重建。
 
 ## 11. 代码规范
 1、要为一个推测出来的、几乎不会发生的并发或安全边界加复杂度之前，先跟用户讲清楚：具体会出什么问题、概率多大、要多写多少，用户点头了再加。不许为了「理论上更稳」悄悄扩大范围。

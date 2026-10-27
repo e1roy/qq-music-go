@@ -687,6 +687,49 @@ func TestQueueClose(t *testing.T) {
 	}
 }
 
+// TestCleanShownotes: the HTML of the shownotes becomes paragraphs and
+// list items, with the entities decoded.
+func TestCleanShownotes(t *testing.T) {
+	in := `<p>第一段<br>换行</p><ul><li>甲</li><li>乙</li></ul>&amp;`
+	want := "第一段\n换行\n\n· 甲\n· 乙\n\n&"
+	if got := cleanShownotes(in); got != want {
+		t.Fatalf("cleanShownotes:\n%q\nwant\n%q", got, want)
+	}
+}
+
+// TestEpisodeNotes draws a 小宇宙 episode's notes in place of the lyrics,
+// which it has none of, and its comments beside them.
+func TestEpisodeNotes(t *testing.T) {
+	a, tt, _ := newTestApp(t)
+	a.queue = playqueue.Restore([]qqmusic.Song{{
+		Mid: "e1", Name: "想当纯过日子人", Source: xiaoyuzhouSource,
+	}}, 0, false)
+	a.notes = episodeNotes{eid: "e1", loaded: true, paragraphs: []string{
+		"第一段：这是单集的简介。",
+		"第二段：还有 shownotes。",
+	}}
+	a.comments.eid, a.comments.total = "e1", 120
+	a.comments.lists[qqmusic.HotComments] = commentList{loaded: true, items: []qqmusic.Comment{
+		{ID: "c1", Nick: "听众", Content: "讲得真好", Likes: 7, Time: time.Now().Add(-time.Hour)},
+	}}
+	a.showLyrics = true
+	tt.Frame()
+	for _, want := range []string{"单集简介", "第一段：这是单集的简介。", "第二段：还有 shownotes。", "评论 120"} {
+		if !tt.HasText(want) {
+			t.Fatalf("no %q: %q", want, tt.Texts())
+		}
+	}
+	shot(t, tt, "episode-notes")
+	if err := tt.Click("评论 120"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if !tt.HasText("讲得真好") || !tt.HasText("120 条评论") {
+		t.Fatalf("no episode comments: %q", tt.Texts())
+	}
+}
+
 // TestComments opens the comments beside the lyrics, in place of the
 // queue, without the network: the comments are there already.
 func TestComments(t *testing.T) {

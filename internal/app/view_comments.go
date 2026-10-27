@@ -15,7 +15,7 @@ import (
 func (a *app) commentsTab(c *ui.Context, s qqmusic.Song) {
 	cm := &a.comments
 	label := "评论"
-	if cm.song == int64(s.ID) && cm.total > 0 {
+	if a.commentsOf(s) && cm.total > 0 {
 		label += " " + formatCount(int64(cm.total))
 	}
 	// Over the blurred cover: white, a little.
@@ -43,7 +43,7 @@ func (a *app) commentsTab(c *ui.Context, s qqmusic.Song) {
 func (a *app) commentsPanel(c *ui.Context) {
 	cm := &a.comments
 	s, ok := a.nowPlaying()
-	mine := ok && s.ID != 0 && cm.song == int64(s.ID)
+	mine := ok && a.commentsOf(s)
 	sub := "暂无评论"
 	if mine && cm.total > 0 {
 		sub = formatCount(int64(cm.total)) + " 条评论"
@@ -81,7 +81,11 @@ func (a *app) commentsCard(c *ui.Context, sub string, mine bool) {
 	case !mine:
 		emptyComments(c)
 	case l.err != "" && len(l.items) == 0:
-		errorRow(c, l.err, a.loadComments)
+		if cm.eid != "" && !a.xiaoyuzhou.api.LoggedIn() {
+			emptyCommentsText(c, "登录小宇宙后可查看评论")
+		} else {
+			errorRow(c, l.err, a.loadComments)
+		}
 	case !l.loaded:
 		commentsSkeleton(c)
 	case len(l.items) == 0:
@@ -99,12 +103,14 @@ func (a *app) commentsCard(c *ui.Context, sub string, mine bool) {
 	}
 }
 
-func emptyComments(c *ui.Context) {
+func emptyComments(c *ui.Context) { emptyCommentsText(c, "还没有评论") }
+
+func emptyCommentsText(c *ui.Context, text string) {
 	ui.Column(c).Padding(32, 16).Gap(10).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(40, 40).Radius(radiusLg).Background(colHover).Center().Children(func() {
 			ui.Icon(c, icComment).FontSize(20).TextColor(colText)
 		})
-		ui.Text(c, "还没有评论").FontSize(14).FontWeight(500)
+		ui.Text(c, text).FontSize(14).FontWeight(500)
 	})
 }
 

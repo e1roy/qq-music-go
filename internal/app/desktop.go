@@ -324,6 +324,7 @@ func Run() error {
 		// Background work starts only now: Post goes through d.win.
 		if s, ok := a.nowPlaying(); ok {
 			a.loadLyrics(s)
+			a.syncNotes()
 		}
 		a.enter(a.current())
 		a.startSession()

@@ -203,6 +203,7 @@ func (a *app) playWay(i, way int) {
 		}
 	})
 	a.loadLyrics(s)
+	a.syncNotes()
 	if a.showLyrics {
 		a.syncComments()
 	}

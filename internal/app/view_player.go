@@ -425,6 +425,10 @@ func (a *app) nowPlayingPage(c *ui.Context) {
 const lyricPad = 6
 
 func (a *app) lyricsView(c *ui.Context) {
+	if s, ok := a.nowPlaying(); ok && isXiaoyuzhou(s) {
+		a.episodeNotesView(c, s)
+		return
+	}
 	lines := a.lyrics
 	if lines == nil {
 		lyricsSkeleton(c)
@@ -480,6 +484,41 @@ func (a *app) lyricsView(c *ui.Context) {
 			a.lyricHold = time.Now()
 		}
 		return false
+	})
+}
+
+// episodeNotesView is what a 小宇宙 episode shows in place of the lyrics:
+// its notes, the description the podcast wrote for it.
+func (a *app) episodeNotesView(c *ui.Context, s qqmusic.Song) {
+	n := &a.notes
+	if n.eid != s.Mid || (n.paragraphs == nil && !n.loaded && n.err == "" && !n.loading) {
+		lyricsSkeleton(c)
+		return
+	}
+	ui.Column(c).Grow(1).Height(0).FillHeight().Children(func() {
+		ui.Row(c).Padding(0, 16, 10, 16).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "单集简介").FontSize(12).FontWeight(600).LetterSpacing(0.5).
+				TextColor(ui.RGBA(255, 255, 255, 0.5))
+		})
+		switch {
+		case n.loading && len(n.paragraphs) == 0:
+			lyricsSkeleton(c)
+		case n.err != "" && len(n.paragraphs) == 0:
+			ui.Column(c).Grow(1).Height(0).FillHeight().Justify(ui.Center).Children(func() {
+				errorRow(c, n.err, a.retryNotes)
+			})
+		case len(n.paragraphs) == 0:
+			ui.Column(c).Grow(1).Height(0).FillHeight().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "播客单集暂无简介").FontSize(15).TextColor(ui.RGBA(255, 255, 255, 0.5))
+			})
+		default:
+			ui.List(c, &n.scroll, len(n.paragraphs), func(i int) {
+				ui.Box(c.Key(i)).Padding(8, 16).Children(func() {
+					ui.Text(c, n.paragraphs[i]).FontSize(15).LineHeight(1.75).
+						TextColor(ui.RGBA(255, 255, 255, 0.78)).Selectable()
+				})
+			}).Grow(1).Height(0).FillHeight()
+		}
 	})
 }
 

@@ -76,7 +76,8 @@ type Episode struct {
 	Pid            string    `json:"pid"`
 	Title          string    `json:"title"`
 	Description    string    `json:"description"`
-	Duration       int       `json:"duration"` // seconds
+	Shownotes      string    `json:"shownotes"` // HTML, the description as the app shows it
+	Duration       int       `json:"duration"`  // seconds
 	PubDate        time.Time `json:"pubDate"`
 	PlayCount      int64     `json:"playCount"`
 	CommentCount   int64     `json:"commentCount"`
@@ -99,6 +100,30 @@ type Episode struct {
 
 // Paid reports whether the episode is sold.
 func (e Episode) Paid() bool { return e.PayType != "" && e.PayType != "FREE" }
+
+// CommentOrder is which comments of an episode come first.
+type CommentOrder string
+
+const (
+	// HotComments are the most liked first (热门).
+	HotComments CommentOrder = "HOT"
+	// LatestComments are the newest first (最新).
+	LatestComments CommentOrder = "TIME"
+)
+
+// Comment is a comment on an episode. Replies is the first few replies,
+// while ReplyCount is how many there are.
+type Comment struct {
+	ID         string    `json:"id"`
+	Text       string    `json:"text"`
+	Author     User      `json:"author"`
+	LikeCount  int64     `json:"likeCount"`
+	ReplyCount int64     `json:"replyCount"`
+	CreatedAt  time.Time `json:"createdAt"`
+	IPLoc      string    `json:"ipLoc"`
+	Pinned     bool      `json:"pinned"`
+	Replies    []Comment `json:"replies"`
+}
 
 // AudioURL is where the episode's sound is; "" for one bought, whose URL
 // PrivateMediaURL gives.

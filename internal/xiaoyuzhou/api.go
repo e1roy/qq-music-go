@@ -115,6 +115,55 @@ func (c *Client) Episodes(ctx context.Context, pid string, after Cursor) ([]Epis
 	return eps, next, err
 }
 
+// Episode is an episode's details, its shownotes among them, as the app
+// shows them on its page. It needs a login; WebEpisode is the same page
+// without one.
+func (c *Client) Episode(ctx context.Context, eid string) (Episode, error) {
+	var e Episode
+	_, err := c.request(ctx, "/v1/episode/get?eid="+url.QueryEscape(eid), nil, &e)
+	return e, err
+}
+
+// Comments is a page of an episode's comments. They need a login.
+func (c *Client) Comments(ctx context.Context, eid string, order CommentOrder, after Cursor) ([]Comment, Cursor, error) {
+	var comments []Comment
+	body := after.into(map[string]any{
+		"limit": pageSize,
+		"owner": map[string]any{"id": eid, "type": "EPISODE"},
+		"order": string(order),
+	})
+	next, err := c.request(ctx, "/v1/comment/list-primary", body, &comments)
+	return comments, next, err
+}
+
+// WebEpisode is an episode's page of the web site, which needs no login.
+// It has what the app's page does, the shownotes among it.
+func (c *Client) WebEpisode(ctx context.Context, eid string) (Episode, error) {
+	html, err := c.webPage(ctx, siteBase+"/episode/"+url.PathEscape(eid))
+	if err != nil {
+		return Episode{}, err
+	}
+	m := nextData.FindSubmatch(html)
+	if m == nil {
+		return Episode{}, fmt.Errorf("xiaoyuzhou: 单集页没有数据")
+	}
+	var v struct {
+		Props struct {
+			PageProps struct {
+				Episode Episode `json:"episode"`
+			} `json:"pageProps"`
+		} `json:"props"`
+	}
+	if err := json.Unmarshal(m[1], &v); err != nil {
+		return Episode{}, fmt.Errorf("xiaoyuzhou: 单集页: %w", err)
+	}
+	e := v.Props.PageProps.Episode
+	if e.Eid == "" {
+		return Episode{}, fmt.Errorf("xiaoyuzhou: 单集不存在")
+	}
+	return e, nil
+}
+
 // SearchPodcasts looks for podcasts.
 func (c *Client) SearchPodcasts(ctx context.Context, keyword string, after Cursor) ([]Podcast, Cursor, error) {
 	return search[Podcast](ctx, c, "PODCAST", keyword, after)

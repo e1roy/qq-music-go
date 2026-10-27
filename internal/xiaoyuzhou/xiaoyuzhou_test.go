@@ -182,6 +182,59 @@ func TestRenew(t *testing.T) {
 	}
 }
 
+// TestEpisodeComments: an episode's notes come from its details, and its
+// comments from the comments path, a page at a time in the order asked.
+func TestEpisodeComments(t *testing.T) {
+	var asked []map[string]any
+	s := &service{answer: func(path string, _ http.Header, body map[string]any) (int, string) {
+		switch path {
+		case "/v1/episode/get":
+			return http.StatusOK, `{"data":{"eid":"e1","title":"E1","description":"简介","shownotes":"<p>第一段</p><p>第二段</p>","commentCount":34}}`
+		case "/v1/comment/list-primary":
+			asked = append(asked, body)
+			return http.StatusOK, `{"data":[{"id":"c1","text":"好听","likeCount":7,"replyCount":2,"createdAt":"2026-10-26T04:00:00.000Z","ipLoc":"上海","author":{"nickname":"听众","avatar":{"picture":{"smallPicUrl":"https://image.xyzcdn.net/a.jpg@small"}}},"replies":[{"id":"r1","text":"同感","author":{"nickname":"朋友"}}]}],"loadMoreKey":{"skip":20}}`
+		}
+		return http.StatusBadRequest, `{"toast":"请求错误"}`
+	}}
+	c := offline(Credential{AccessToken: "access", DeviceID: "device"}, s)
+	ctx := context.Background()
+	e, err := c.Episode(ctx, "e1")
+	if err != nil || e.Shownotes != "<p>第一段</p><p>第二段</p>" || e.CommentCount != 34 {
+		t.Fatalf("episode %+v %v", e, err)
+	}
+	comments, next, err := c.Comments(ctx, "e1", LatestComments, nil)
+	if err != nil || len(comments) != 1 || comments[0].Text != "好听" || comments[0].Author.Nickname != "听众" || comments[0].LikeCount != 7 {
+		t.Fatalf("comments %+v %v", comments, err)
+	}
+	if comments[0].Replies[0].Text != "同感" || string(next) != `{"skip":20}` {
+		t.Errorf("reply %+v cursor %s", comments[0].Replies, next)
+	}
+	if len(asked) != 1 || asked[0]["order"] != "TIME" || asked[0]["limit"] != "20" {
+		t.Fatalf("asked %v", asked)
+	}
+	owner, _ := asked[0]["owner"].(map[string]any)
+	if owner["id"] != "e1" || owner["type"] != "EPISODE" {
+		t.Errorf("owner %v", owner)
+	}
+}
+
+// TestWebEpisode: the web page has the notes too, for no login.
+func TestWebEpisode(t *testing.T) {
+	page := `<html><body><script id="__NEXT_DATA__" type="application/json">
+		{"props":{"pageProps":{"episode":{"eid":"e1","title":"E1","shownotes":"<p>简介</p>"}}}}
+	</script></body></html>`
+	s := &service{answer: func(path string, h http.Header, _ map[string]any) (int, string) {
+		if path != "/episode/e1" || h.Get("User-Agent") == "" {
+			return http.StatusForbidden, `<html></html>`
+		}
+		return http.StatusOK, page
+	}}
+	e, err := offline(Credential{}, s).WebEpisode(context.Background(), "e1")
+	if err != nil || e.Eid != "e1" || e.Shownotes != "<p>简介</p>" {
+		t.Fatalf("episode %+v %v", e, err)
+	}
+}
+
 func TestDiscovery(t *testing.T) {
 	pages := map[string]string{
 		"": `{"data":[{"type":"DISCOVERY_EPISODE_RECOMMEND","data":{"target":[{"recommendation":"为什么","episode":{"eid":"e1"}}]}},

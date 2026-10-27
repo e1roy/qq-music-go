@@ -174,11 +174,13 @@ type app struct {
 	volume       float64
 	muted        bool
 
-	// The lyrics of the song playing, the line it is at, and its comments.
+	// The lyrics of the song playing, the line it is at, its comments,
+	// and the notes of it when it is an episode of 小宇宙.
 	lyrics    []qqmusic.LyricLine
 	lyricsFor string
 	lyricLine int
 	comments  comments
+	notes     episodeNotes
 
 	// The view's own state of the player bar and the panels: what is
 	// shown, the popups, the slider dragged, the scrolls.

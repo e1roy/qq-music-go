@@ -87,7 +87,7 @@ cmd/qqmusic (main)
                 session.go    QQ 会话、我的歌单、我喜欢；login.go 扫码与 WebView 登录
                 playback.go   播放编排：音源解析、失败跳过、歌词、tick
                 settings.go   持久化记录与读写、设置项意图方法
-                podcast.go xiaoyuzhou.go comments.go   各区域状态与加载
+                podcast.go xiaoyuzhou.go comments.go notes.go   各区域状态与加载
                 desktop.go    platform 实现（窗口、托盘、WebView）
   ├── internal/playqueue   播放队列规则（纯数据，无 IO）
   ├── internal/store       数据目录中的 JSON 文件
@@ -124,6 +124,7 @@ UI 线程：view(c) → 点击/快捷键 → app 方法 → a.do(work)
 - 设置是 `pageSettings`（左下角用户行右侧的齿轮进入）：左侧分区菜单 `settingsSections`、右侧按 `a.settingsTab` 显示分区，目前只有「缓存」。新增设置分区时往 `settingsSections` 加一项并在 `settingsPage` 里分发，不要再往音质弹窗之类的地方塞设置项。
 - 小宇宙官方（原 beta）是 `pageXiaoyuzhou`（页签：推荐/发现/订阅更新/我的订阅），节目页是 `pageXiaoyuzhouShow`（`mid` 为小宇宙 pid），分类页是 `pageXiaoyuzhouCategory`（`mid` 为分类 id）。它直连小宇宙官方接口（`internal/xiaoyuzhou`），和 QQ 音乐内置的 `pagePodcast` 无关；单集作为 `qqmusic.Song` 进队列，`Source == "xiaoyuzhou"`（v1.0.1 写的 `"xyz"` 读取时自动转换）、`URL` 为音频直链（付费单集 `URL` 为空，播放时调 `PrivateMediaURL`），播放不需要登录 QQ 音乐、不走 `SongURL`，也不能加入「我喜欢」。
 - 小宇宙是 `pagePodcast`；播客节目复用 `pageAlbum`（有 mid 用 mid，只有 id 时用 `id`），`AlbumInfo.IsPodcast()` 时按页加载单集（`PodcastPage`=30，滚到底再取），不要改回全量循环（有的节目上万集）。
+- 小宇宙单集播放时，歌词页没有歌词，改显示单集简介（`notes.go`：`/v1/episode/get` 的 `shownotes`，未登录回退 `WebEpisode` 的网页数据）；评论复用歌词页旁的评论面板（`/v1/comment/list-primary`，需要登录）。
 - `app.podcast.known` 里的专辑（播客）单集固定用 128k 播放，见 `playAt`：320k 一小时就是 144 MB；单集不进歌曲缓存。
 
 ### 5.4 一次播放的链路

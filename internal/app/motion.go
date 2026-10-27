@@ -110,7 +110,21 @@ func LayerEffect(pos vec2) vec4 {
 // genieCover is where the cover in the player bar is, as genieShader's
 // Target, from the panel's left and bottom: the bar's inset and padding,
 // and the cover centered in the bar.
-var genieCover = [4]float32{8 + 12, 8 + (barHeight+48)/2, 8 + 12 + 48, 8 + (barHeight-48)/2}
+var genieCover = [4]float32{
+	barInset + barPadX,
+	barInset + (barHeight+barCover)/2,
+	barInset + barPadX + barCover,
+	barInset + (barHeight-barCover)/2,
+}
+
+// The shader's values and the variables they are set by, looked up once: the
+// lyrics set them in every frame of the genie, with no map to build and
+// nothing to convert. The UI is one thread, so they are safe to reuse.
+var (
+	genieValues   = genieShader.NewValues()
+	genieProgress = genieShader.Uniform("Progress")
+	genieTarget   = genieShader.Uniform("Target")
+)
 
 // lyricScroll slides the lines of the lyrics over the jump the list makes to
 // center the line the song is at. A List moves to a row at once — ListState

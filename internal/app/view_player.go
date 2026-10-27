@@ -52,13 +52,13 @@ func (a *app) playerBar(c *ui.Context) {
 	// of the cover's color fading out from the left, under the song. The
 	// card is a layer of its own under the controls, for it to fade, in
 	// frames that only paint, as the lyrics open.
-	a.barFace(ui.Box(c.Key("barFace")).Absolute().Left(8).Right(8).Bottom(8).Height(barHeight).PassThrough().
+	a.barFace(ui.Box(c.Key("barFace")).Absolute().Left(barInset).Right(barInset).Bottom(barInset).Height(barHeight).PassThrough().
 		Radius(radiusXl).Background(colCard).Border(1, colLine).Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.5)).
 		Draw(func(p *ui.Painter, r ui.Rect) {
 			col := a.barTint.color(p)
 			p.FillGradient(r, ui.LinearGradient{From: col.Alpha(0.35), To: col.Alpha(0), Angle: 90, End: 0.5}, radiusXl)
 		}))
-	bar := ui.Row(c).Absolute().Left(8).Right(8).Bottom(8).Height(barHeight).Padding(0, 16, 0, 12).AlignItems(ui.Center).Gap(16)
+	bar := ui.Row(c).Absolute().Left(barInset).Right(barInset).Bottom(barInset).Height(barHeight).Padding(0, 16, 0, barPadX).AlignItems(ui.Center).Gap(16)
 	bar.Children(func() {
 		// The song, in a room of its own: the one coming slides in over that
 		// edge rather than over the controls.
@@ -265,7 +265,7 @@ func (a *app) songCell(c *ui.Context, s qqmusic.Song) {
 // songCellBody is the cover, name and singers of a song of songCell.
 func (a *app) songCellBody(c *ui.Context, s qqmusic.Song) {
 	cov := ui.Box(c).Cursor(ui.CursorPointer).Tooltip("歌词").Children(func() {
-		a.cover(c, s.Cover(300), 48, radiusMd)
+		a.cover(c, s.Cover(300), barCover, radiusMd)
 	})
 	if cov.Clicked() {
 		a.toggleLyrics()
@@ -512,11 +512,14 @@ var (
 
 func (a *app) lyricsView(c *ui.Context) {
 	if s, ok := a.nowPlaying(); ok && isXiaoyuzhou(s) {
+		// No line is built here: what the slide measured is over.
+		a.lyricScroll.done()
 		a.episodeNotesView(c, s)
 		return
 	}
 	lines := a.lyrics
 	if lines == nil {
+		a.lyricScroll.done()
 		lyricsSkeleton(c)
 		return
 	}

@@ -94,7 +94,7 @@ func (a *app) back() {
 	if len(a.history) > 1 {
 		a.future = append(a.future, a.current())
 		a.history = a.history[:len(a.history)-1]
-		a.showLyrics = a.current().lyrics
+		a.restoreLyrics()
 		a.enter(a.current())
 	}
 }
@@ -103,8 +103,18 @@ func (a *app) forward() {
 	if n := len(a.future); n > 0 {
 		a.history = append(a.history, a.future[n-1])
 		a.future = a.future[:n-1]
-		a.showLyrics = a.current().lyrics
+		a.restoreLyrics()
 		a.enter(a.current())
+	}
+}
+
+// restoreLyrics brings the lyrics up again over the page they were left
+// over, as toggleLyrics opens them: the comments beside them are those of
+// the song playing now, which may not be the one they were opened on.
+func (a *app) restoreLyrics() {
+	a.showLyrics = a.current().lyrics
+	if a.showLyrics && a.comments.open {
+		a.syncComments()
 	}
 }
 

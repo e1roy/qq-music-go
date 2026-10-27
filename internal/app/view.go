@@ -51,10 +51,16 @@ const (
 const (
 	sidebarWidth = 240
 	barHeight    = 76
+	// The player bar's own measures, which its layout and genieCover both
+	// read: its inset in the panel, its padding at the left, and the cover
+	// it shows.
+	barInset = 8
+	barPadX  = 12
+	barCover = 48
 	// barRoom is how much of the panel's bottom the player bar floats over,
 	// with the gaps above and below it: what scrolls ends past it, and the
 	// cards beside the page stop above it.
-	barRoom    = barHeight + 2*8
+	barRoom    = barHeight + 2*barInset
 	topHeight  = 52  // the title bar at the top of the page
 	tintHeight = 360 // how far down the page's color fades out
 	queueWidth = 340 // the queue, a column on the right of the panel
@@ -210,7 +216,9 @@ func (a *app) view(c *ui.Context) {
 							gone = 0
 						}
 						if g := lyrics.AnimateTo("genie", gone, lyricsSpring); g > 0.001 {
-							lyrics.Effect(genieShader.Effect(shader.Options{Uniforms: map[string]any{"Progress": g, "Target": genieCover}}))
+							genieValues.Float(genieProgress, g).
+								Vec4(genieTarget, genieCover[0], genieCover[1], genieCover[2], genieCover[3])
+							lyrics.Effect(genieShader.Effect(shader.Options{Values: genieValues}))
 						}
 						lyrics.Children(func() {
 							a.nowPlayingPage(c)

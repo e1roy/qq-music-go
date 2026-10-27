@@ -22,7 +22,8 @@ func (a *app) playList(songs []qqmusic.Song, i int) {
 	if len(songs) == 0 {
 		return
 	}
-	if !a.api.LoggedIn() {
+	// The episodes of 小宇宙 need no login of QQ Music.
+	if !a.api.LoggedIn() && songs[i].Source == "" {
 		a.toast("登录后即可播放歌曲")
 		a.openLogin()
 		return
@@ -139,8 +140,25 @@ func (a *app) playAt(i int) {
 	a.seekValue, a.downloaded = 0, false
 	a.player.Stop()
 	q := a.set.Quality
+	// An episode is long, and the player keeps the whole file: one of an
+	// hour at 320k would hold 144 MB.
+	podcast := a.podcast.known[s.Album.Mid]
+	if podcast {
+		q = qqmusic.Standard
+	}
 	a.do(func(ctx context.Context) func() {
-		url, got, err := a.api.SongURL(ctx, s, q)
+		var url string
+		var got qqmusic.Quality
+		var err error
+		switch {
+		case s.Source == xyzSource && s.URL != "":
+			url = s.URL
+		case s.Source == xyzSource:
+			// Bought, its sound has a URL of a few hours.
+			url, err = a.xyz.api.PrivateMedia(ctx, s.Mid)
+		default:
+			url, got, err = a.api.SongURL(ctx, s, q)
+		}
 		if err == nil {
 			var ok bool
 			ok, err = a.player.Load(url, time.Duration(s.Interval)*time.Second)
@@ -164,8 +182,11 @@ func (a *app) playAt(i int) {
 				return
 			}
 			a.failStreak = 0
-			a.gotQuality, a.askedQuality, a.qualityKnown = got, q, true
+			a.gotQuality, a.askedQuality, a.qualityKnown = got, q, s.Source == ""
 			a.addRecent(s)
+			if podcast {
+				a.hearShow(s)
+			}
 		}
 	})
 	a.loadLyrics(s)
@@ -176,6 +197,10 @@ func (a *app) playAt(i int) {
 
 func (a *app) loadLyrics(s qqmusic.Song) {
 	if a.lyricsFor == s.Mid {
+		return
+	}
+	if s.Source != "" {
+		a.lyricsFor, a.lyrics, a.lyricLine = s.Mid, []qqmusic.LyricLine{{At: -1, Text: "播客单集暂无歌词"}}, -1
 		return
 	}
 	a.lyricsFor, a.lyrics, a.lyricLine = s.Mid, nil, -1

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	"qqmusic/internal/player"
 	"qqmusic/internal/qqmusic"
+	"qqmusic/internal/xyz"
 )
 
 // pageKind is a page of the main area.
@@ -22,14 +24,18 @@ type pageKind int
 
 const (
 	pageHome pageKind = iota
-	pageSquare
-	pageToplists
+	// 音乐馆: 排行榜 and 歌单广场, a tab each.
+	pageDiscover
 	pageSearch
 	pagePlaylist // a playlist, 我喜欢 (dirid 201), or a chart
 	pageToplist
 	pageSinger
 	pageRecent // the songs played last, kept on this computer
-	pageAlbum
+	pageAlbum  // an album, or a podcast (节目), by its mid or else its id
+	pagePodcast
+	pageXyz         // 小宇宙 beta: 小宇宙's own podcasts
+	pageXyzShow     // a podcast of 小宇宙, by its pid as mid
+	pageXyzCategory // a category of 小宇宙's podcasts, by its id as mid
 )
 
 // page is where the main area is; pages form a history.
@@ -51,6 +57,7 @@ type songList struct {
 	period  string
 	isChart bool
 	album   qqmusic.AlbumInfo // of an album's page
+	eps     []qqmusic.Episode // of an album's page, songs with their numbers and dates
 	songs   []qqmusic.Song
 	total   int
 	loading bool
@@ -91,6 +98,7 @@ const (
 	foundSongs searchTab = iota
 	foundSingers
 	foundPlaylists
+	foundPodcasts
 )
 
 // found is the singers or the playlists a search found, loaded a page at
@@ -127,10 +135,29 @@ type settings struct {
 	// The playlist sections of the sidebar that are folded.
 	MineClosed bool `json:"mine_closed"`
 	FavClosed  bool `json:"fav_closed"`
+	// The searches made last, the newest first, as the search box lists them.
+	Searches []string `json:"searches"`
+	// The window's normal bounds, and whether it was maximized.
+	WinX      int  `json:"win_x"`
+	WinY      int  `json:"win_y"`
+	WinWidth  int  `json:"win_width"`
+	WinHeight int  `json:"win_height"`
+	WinMax    bool `json:"win_max"`
+	// Whether 小宇宙 shows 小宇宙's own podcasts rather than QQ Music's.
+	XyzOfficial bool `json:"xyz_official"`
 }
 
 // recentMax is how many songs 最近播放 keeps.
 const recentMax = 100
+
+// searchHistoryMax is how many searches the box remembers; suggestMax how
+// many ways the text may go on it lists, asked for once typing rests
+// suggestPause.
+const (
+	searchHistoryMax = 10
+	suggestMax       = 6
+	suggestPause     = 250 * time.Millisecond
+)
 
 // savedQueue is the play queue as queue.json keeps it between runs.
 type savedQueue struct {
@@ -146,7 +173,11 @@ type platform interface {
 	// OpenQQLogin opens the QQ login page in a webview and calls done with
 	// the cookies of graph.qq.com once logged in, on any goroutine.
 	OpenQQLogin(done func(cookies []*cookie, err error))
-	// WebViewAvailable reports whether OpenQQLogin can work.
+	// OpenXyzLogin opens 小宇宙's login page in a webview and calls done with
+	// the tokens it set once logged in, on any goroutine.
+	OpenXyzLogin(done func(access, refresh string, err error))
+	// WebViewAvailable reports whether OpenQQLogin and OpenXyzLogin can
+	// work.
 	WebViewAvailable() bool
 	// Minimize, ToggleMaximize, Maximized and Close are the window's
 	// controls, which the view draws itself.
@@ -186,10 +217,19 @@ type app struct {
 	home struct {
 		loaded, loading bool
 		recs            []qqmusic.Playlist
+		recFrom         int // where the next batch of recs starts
+		recLoading      bool
+		recMotion       refreshMotion  // the playlist cards coming in again after 换一批
+		radar           []qqmusic.Song // 精选好歌
+		radarPage       int
+		radarLoading    bool
+		radarMotion     refreshMotion // the cards coming in again after 换一批
 		newSongs        []qqmusic.Song
 		guess           []qqmusic.Song
 		dailyList       qqmusic.Playlist // 每日30首
 		daily           []qqmusic.Song
+		feed            []qqmusic.FeedShelf // the sections the app's front page has
+		feedMotion      []refreshMotion     // one for each shelf's own 换一批
 		err             string
 	}
 	square struct {
@@ -205,6 +245,10 @@ type app struct {
 		groups          []qqmusic.ToplistGroup
 		err             string
 	}
+	// discoverTab is the tab of 音乐馆 shown: 0 排行榜, 1 歌单广场. It is
+	// not the page's, so back from a chart it is the one left.
+	discoverTab int
+
 	search struct {
 		input   string
 		query   string
@@ -220,9 +264,27 @@ type app struct {
 		direct  *qqmusic.Direct // 直达, from the first page of the songs
 		singers found[qqmusic.FoundSinger]
 		pls     found[qqmusic.Playlist]
+		// 播客, searched beside the songs as a query is new.
+		podcasts podcastFound[qqmusic.Show]
+		// What hangs below the box: the searches made before it is typed
+		// in, and what is typed may become. open stays as the box is
+		// focused. typing is closed when the text changes, dropping the
+		// rest it waited for; sugGen drops what the text before asked the
+		// service for. sel is the suggestion the arrows are on, -1 for none.
+		// focus is the box's FocusBind, to let the focus go.
+		open    bool
+		focused bool
+		focus   bool
+		typing  chan struct{}
+		suggest []string
+		sugFor  string // the text the suggestions are for
+		sugGen  int
+		sel     int
 	}
-	lists map[page]*songList
-	main  ui.ScrollState
+	lists   map[page]*songList
+	main    ui.ScrollState
+	podcast podcasts // 小宇宙
+	xyz     xyzState // 小宇宙 beta
 
 	// The user.
 	user      qqmusic.User
@@ -263,6 +325,7 @@ type app struct {
 	showLyrics       bool
 	showQueue        bool
 	modeOpen         bool // the popup of play modes
+	qualityOpen      bool // the popup of qualities
 	queueList        ui.ListState
 	failStreak       int
 	downloaded       bool // the song playing finished downloading
@@ -285,20 +348,22 @@ type app struct {
 
 func newApp(plat platform, dir string) *app {
 	a := &app{
-		plat:   plat,
-		api:    qqmusic.New(),
-		player: player.New(),
-		dir:    dir,
-		lists:  map[page]*songList{},
-		liked:  map[int64]bool{},
-		cur:    -1,
-		set:    settings{Volume: 0.8, Quality: qqmusic.High},
+		plat:    plat,
+		api:     qqmusic.New(),
+		player:  player.New(),
+		dir:     dir,
+		lists:   map[page]*songList{},
+		liked:   map[int64]bool{},
+		podcast: podcasts{known: map[string]bool{}},
+		cur:     -1,
+		set:     settings{Volume: 0.8, Quality: qqmusic.Best},
 	}
 	a.images = newImages(a.api.Fetch, plat.Post, a.trim.soon)
 	a.history = []page{{kind: pageHome}}
 	a.square.cat = qqmusic.PlaylistCategories[0].ID
 	a.lyricLine = -1
 	a.load()
+	a.loadXyz()
 	a.volume = a.set.Volume
 	a.player.SetVolume(a.volume)
 	// The queue of the last run waits in the player bar, at the song played
@@ -332,6 +397,9 @@ func errText(err error) string {
 	if errors.Is(err, qqmusic.ErrNotLoggedIn) {
 		return "需要登录 QQ 音乐账号"
 	}
+	if errors.Is(err, xyz.ErrNotLoggedIn) {
+		return "需要登录小宇宙账号"
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "网络请求超时"
 	}
@@ -363,6 +431,12 @@ func (a *app) load() {
 		q.Cur >= 0 && q.Cur < len(q.Songs) {
 		a.queue, a.cur, a.radio = q.Songs, q.Cur, q.Radio
 	}
+	if b, err := os.ReadFile(a.path("podcasts.json")); err == nil {
+		json.Unmarshal(b, &a.podcast.heard)
+		for _, sh := range a.podcast.heard {
+			a.podcast.known[sh.Mid] = true
+		}
+	}
 }
 
 // saveQueue keeps the queue and the song in it for the next run; an empty
@@ -388,6 +462,19 @@ func (a *app) saveSettings() {
 	os.MkdirAll(a.dir, 0o700)
 	b, _ := json.MarshalIndent(a.set, "", "  ")
 	os.WriteFile(a.path("settings.json"), b, 0o600)
+}
+
+// rememberWindow keeps the window's bounds, and whether it was maximized,
+// for the next run.
+func (a *app) rememberWindow(x, y, width, height int, maximized bool) {
+	if a.set.WinX == x && a.set.WinY == y && a.set.WinWidth == width &&
+		a.set.WinHeight == height && a.set.WinMax == maximized {
+		return
+	}
+	a.set.WinX, a.set.WinY = x, y
+	a.set.WinWidth, a.set.WinHeight = width, height
+	a.set.WinMax = maximized
+	a.saveSettings()
 }
 
 // addRecent puts a song that played at the top of 最近播放.
@@ -439,6 +526,27 @@ func (a *app) navigate(p page) {
 	a.enter(p)
 }
 
+// podcastHome is 小宇宙 as the user left it: QQ Music's podcasts, or
+// 小宇宙's own.
+func (a *app) podcastHome() page {
+	if a.set.XyzOfficial {
+		return page{kind: pageXyz, title: "小宇宙"}
+	}
+	return page{kind: pagePodcast, title: "小宇宙"}
+}
+
+// switchPodcasts shows 小宇宙 from the other source in place of the page
+// shown, as a tab does: back does not switch it again.
+func (a *app) switchPodcasts() {
+	a.set.XyzOfficial = !a.set.XyzOfficial
+	a.saveSettings()
+	p := a.podcastHome()
+	a.history[len(a.history)-1] = p
+	a.future = nil
+	a.main.Y = 0
+	a.enter(p)
+}
+
 func (a *app) back() {
 	if len(a.history) > 1 {
 		a.future = append(a.future, a.current())
@@ -462,12 +570,12 @@ func (a *app) enter(p page) {
 	switch p.kind {
 	case pageHome:
 		a.loadHome(false)
-	case pageSquare:
-		if len(a.square.pls) == 0 {
+	case pageDiscover:
+		if a.discoverTab == 0 {
+			a.loadCharts()
+		} else if len(a.square.pls) == 0 {
 			a.loadSquare(1)
 		}
-	case pageToplists:
-		a.loadCharts()
 	case pageSearch:
 		if a.search.hot == nil {
 			a.do(func(ctx context.Context) func() {
@@ -479,7 +587,88 @@ func (a *app) enter(p page) {
 		if l := a.lists[p.key()]; l == nil || l.err != "" {
 			a.loadList(p)
 		}
+	case pagePodcast:
+		a.loadPodcasts(false)
+	case pageXyz:
+		a.enterXyz()
+	case pageXyzShow:
+		a.loadXyzShow(p.mid, false)
+	case pageXyzCategory:
+		a.loadXyzCategory(p.mid, false)
 	}
+}
+
+// refresh loads again what the page shown shows.
+func (a *app) refresh() {
+	p := a.current()
+	switch p.kind {
+	case pageHome:
+		a.loadHome(true)
+	case pageDiscover:
+		if a.discoverTab == 0 {
+			a.charts.loaded = false
+			a.loadCharts()
+		} else {
+			a.loadSquare(1)
+		}
+	case pageSearch:
+		a.runSearch(a.search.query, a.search.page)
+	case pageSinger:
+		// Its songs and albums come a page at a time: they start again.
+		delete(a.lists, p.key())
+		a.loadList(p)
+	case pageAlbum:
+		// So do the episodes of a podcast.
+		if l := a.lists[p.key()]; l != nil && l.album.IsPodcast() && !l.loading {
+			delete(a.lists, p.key())
+		}
+		a.loadList(p)
+	case pagePlaylist, pageToplist:
+		a.loadList(p)
+	case pagePodcast:
+		if q := a.podcast.search.query; q != "" {
+			a.searchPodcasts(q)
+		} else {
+			a.loadPodcasts(true)
+		}
+	case pageXyz:
+		a.refreshXyz()
+	case pageXyzShow:
+		a.loadXyzShow(p.mid, true)
+	case pageXyzCategory:
+		a.loadXyzCategory(p.mid, true)
+	}
+}
+
+// refreshing reports whether the page shown is loading: its refresh button
+// turns while it does, as a browser's.
+func (a *app) refreshing() bool {
+	p := a.current()
+	switch p.kind {
+	case pageHome:
+		return a.home.loading
+	case pageDiscover:
+		if a.discoverTab == 0 {
+			return a.charts.loading
+		}
+		return a.square.loading
+	case pageSearch:
+		return a.search.loading
+	case pagePlaylist, pageToplist, pageSinger, pageAlbum:
+		l := a.lists[p.key()]
+		return l != nil && l.loading
+	case pagePodcast:
+		return a.podcast.loading || a.podcast.search.shows.loading || a.podcast.search.episodes.loading
+	case pageXyz:
+		return a.xyzLoading()
+	case pageXyzShow:
+		sh := a.xyz.shows[p.mid]
+		return sh != nil && sh.loading
+	case pageXyzCategory:
+		cat := a.xyz.cats[p.mid]
+		return cat != nil && (cat.loading || len(cat.lists) > 0 && cat.lists[cat.tab].loading)
+	}
+	return false
 }
 
 // Loading.
@@ -492,20 +681,34 @@ func (a *app) loadHome(again bool) {
 	h.loading, h.err = true, ""
 	logged := a.api.LoggedIn()
 	a.do(func(ctx context.Context) func() {
-		recs, err1 := a.api.RecommendPlaylists(ctx)
+		recs, more, err1 := a.api.RecommendPlaylists(ctx, 0, recSize)
 		songs, err2 := a.api.NewSongs(ctx)
-		var guess, daily []qqmusic.Song
+		var guess, daily, radar []qqmusic.Song
 		var dailyList qqmusic.Playlist
-		var err3, err4 error
+		var feed []qqmusic.FeedShelf
+		var err3, err4, err5, err6 error
+		radarMore := false
 		if logged {
 			guess, err3 = a.api.GuessYouLike(ctx)
 			dailyList, daily, err4 = a.api.DailySongs(ctx)
+			radar, radarMore, err5 = a.api.RadarSongs(ctx, 1)
+			feed, err6 = a.api.RecommendFeed(ctx)
 		}
 		return func() {
 			h.loading, h.loaded = false, true
 			// Loaded again, a section that failed keeps what it showed.
 			if err1 == nil || len(h.recs) == 0 {
 				h.recs = addPlaylists(nil, recs)
+				h.recFrom = 0
+				if more {
+					h.recFrom = recSize
+				}
+			}
+			if err5 == nil {
+				h.radar, h.radarPage = radar, 1
+				if !radarMore {
+					h.radarPage = 0
+				}
 			}
 			if err2 == nil || len(h.newSongs) == 0 {
 				h.newSongs = songs
@@ -516,7 +719,71 @@ func (a *app) loadHome(again bool) {
 			if err4 == nil {
 				h.dailyList, h.daily = dailyList, daily
 			}
+			if err6 == nil {
+				h.feed, h.feedMotion = feed, make([]refreshMotion, len(feed))
+			}
 			h.err = errText(errors.Join(err1, err2))
+		}
+	})
+}
+
+// recSize is how many recommended playlists the home page shows at once.
+const recSize = 20
+
+// moreRecs shows the next batch of recommended playlists, and the first
+// again after those picked for the user.
+func (a *app) moreRecs() {
+	h := &a.home
+	if h.loading || h.recLoading {
+		return
+	}
+	h.recLoading = true
+	from := h.recFrom
+	a.do(func(ctx context.Context) func() {
+		pls, more, err := a.api.RecommendPlaylists(ctx, from, recSize)
+		return func() {
+			h.recLoading = false
+			if err != nil {
+				a.toast("换一批失败：" + errText(err))
+				return
+			}
+			if len(pls) > 0 {
+				h.recs = addPlaylists(nil, pls)
+				h.recMotion.arm()
+			}
+			h.recFrom = from + recSize
+			if !more || len(pls) == 0 {
+				h.recFrom = 0
+			}
+		}
+	})
+}
+
+// moreRadar shows the next page of 精选好歌, and the first again after the
+// last.
+func (a *app) moreRadar() {
+	h := &a.home
+	if h.loading || h.radarLoading {
+		return
+	}
+	h.radarLoading = true
+	pg := h.radarPage + 1
+	a.do(func(ctx context.Context) func() {
+		songs, more, err := a.api.RadarSongs(ctx, pg)
+		return func() {
+			h.radarLoading = false
+			if err != nil {
+				a.toast("换一批失败：" + errText(err))
+				return
+			}
+			if len(songs) > 0 {
+				h.radar = songs
+				h.radarMotion.arm()
+			}
+			h.radarPage = pg
+			if !more || len(songs) == 0 {
+				h.radarPage = 0
+			}
 		}
 	})
 }
@@ -537,7 +804,8 @@ func (a *app) loadSquare(pg int) {
 				return
 			}
 			s.loading, s.err = false, errText(err)
-			if pg == 1 {
+			// Loaded again, the playlists shown stay if it failed.
+			if pg == 1 && err == nil {
 				s.pls = nil
 			}
 			s.pls = addPlaylists(s.pls, pls)
@@ -578,7 +846,11 @@ func (a *app) loadCharts() {
 	a.do(func(ctx context.Context) func() {
 		groups, err := a.api.Toplists(ctx)
 		return func() {
-			ch.loading, ch.loaded, ch.groups, ch.err = false, err == nil, groups, errText(err)
+			ch.loading, ch.err = false, errText(err)
+			// Loaded again, the charts that failed keep what they showed.
+			if err == nil {
+				ch.loaded, ch.groups = true, groups
+			}
 		}
 	})
 }
@@ -593,8 +865,12 @@ func (a *app) loadList(p page) {
 		return
 	}
 	l.loading, l.err = true, ""
-	if p.kind == pageSinger {
+	switch p.kind {
+	case pageSinger:
 		a.loadSinger(p, l)
+		return
+	case pageAlbum:
+		a.loadAlbum(p, l)
 		return
 	}
 	// Loaded again, as 我喜欢 after a like, a list that failed keeps what
@@ -604,16 +880,6 @@ func (a *app) loadList(p page) {
 		return err != nil && len(l.songs) > 0
 	}
 	a.do(func(ctx context.Context) func() {
-		if p.kind == pageAlbum {
-			al, songs, err := a.api.AlbumDetail(ctx, p.mid)
-			return func() {
-				if kept(err) {
-					return
-				}
-				l.album, l.songs = al, songs
-				l.info = qqmusic.Playlist{Title: al.Name, Desc: al.Desc, Cover: qqmusic.AlbumCover(p.mid, 300), SongCount: len(songs)}
-			}
-		}
 		if p.kind == pageToplist {
 			tl, songs, err := a.api.ToplistDetail(ctx, int(p.id), 0, 300)
 			return func() {
@@ -636,6 +902,44 @@ func (a *app) loadList(p page) {
 				for _, s := range songs {
 					a.liked[int64(s.ID)] = true
 				}
+			}
+		}
+	})
+}
+
+// loadAlbum loads what an album is with its songs, or the next episodes
+// of a podcast once its first are loaded: a podcast may have hundreds.
+func (a *app) loadAlbum(p page, l *songList) {
+	begin, mid := len(l.eps), l.album.Mid
+	next := l.album.IsPodcast() && begin > 0
+	a.do(func(ctx context.Context) func() {
+		var al qqmusic.AlbumInfo
+		var eps []qqmusic.Episode
+		var total int
+		var err error
+		if next {
+			eps, total, err = a.api.AlbumSongs(ctx, mid, begin, qqmusic.PodcastPage)
+		} else {
+			al, eps, total, err = a.api.AlbumDetail(ctx, p.mid, p.id)
+		}
+		return func() {
+			l.loading, l.err = false, errText(err)
+			// Loaded again, an album that failed keeps what it showed.
+			if err != nil || len(l.eps) != begin {
+				return
+			}
+			if !next {
+				l.album, l.eps, l.songs = al, nil, nil
+				l.info = qqmusic.Playlist{Title: al.Name, Desc: al.Desc, Cover: qqmusic.AlbumCover(al.Mid, 300)}
+				if al.IsPodcast() {
+					a.podcast.known[al.Mid] = true
+				}
+			}
+			l.eps = append(l.eps, eps...)
+			l.songs = append(l.songs, qqmusic.EpisodeSongs(eps)...)
+			l.total = total
+			if len(eps) == 0 {
+				l.total = len(l.eps)
 			}
 		}
 	})
@@ -747,15 +1051,16 @@ func (a *app) runSearch(q string, pg int) {
 		return
 	}
 	s := &a.search
-	// Turning the pages of the songs keeps the singers and the playlists
-	// found, and how many songs there are; a new query knows none yet.
+	// Turning the pages of the songs keeps the singers, the playlists and
+	// the podcasts found, and how many songs there are; a new query knows
+	// none yet.
 	if q != s.query {
 		s.total, s.direct = 0, nil
 		s.singers.reset()
 		s.pls.reset()
+		s.podcasts = podcastFound[qqmusic.Show]{gen: s.podcasts.gen + 1}
 	}
 	s.query, s.page, s.loading, s.err = q, pg, true, ""
-	a.loadSearchTab()
 	s.gen++
 	gen := s.gen
 	a.do(func(ctx context.Context) func() {
@@ -772,7 +1077,167 @@ func (a *app) runSearch(q string, pg int) {
 			s.list.ScrollTo(0, ui.Start)
 		}
 	})
+	// The songs first, which the page shows first; the podcasts go beside
+	// them, ready by the time their tab is shown. The search retries what
+	// the service turns away as they come together (code 2001).
+	a.loadSearchTab()
+	a.loadSearchPodcasts()
 	a.navigate(page{kind: pageSearch, title: "搜索"})
+}
+
+// suggestAsTyped asks the service, once typing rests, what the text in the
+// box may become: a later key drops what came before it.
+func (a *app) suggestAsTyped(q string) {
+	s := &a.search
+	// A key closes what the text before it waited for: one question per
+	// rest, however fast the keys come.
+	if s.typing != nil {
+		close(s.typing)
+	}
+	s.typing = make(chan struct{})
+	stop := s.typing
+	s.sugGen++
+	q = strings.TrimSpace(q)
+	if q == "" {
+		s.suggest, s.sugFor = nil, ""
+		return
+	}
+	gen := s.sugGen
+	a.do(func(ctx context.Context) func() {
+		if !rest(ctx, stop, suggestPause) {
+			return nil
+		}
+		words, _ := a.api.Suggest(ctx, q)
+		return func() {
+			if gen != s.sugGen {
+				return
+			}
+			// Empty, repeated or past the few shown, they are no use.
+			var out []string
+			seen := make(map[string]bool, len(words))
+			for _, w := range words {
+				if w == "" || seen[w] || len(out) == suggestMax {
+					continue
+				}
+				seen[w] = true
+				out = append(out, w)
+			}
+			s.suggest, s.sugFor = out, q
+			if s.sel >= len(out) {
+				s.sel = len(out) - 1
+			}
+		}
+	})
+}
+
+// searchWords is what the service says the text in the box may become, as
+// the text stands now.
+func (a *app) searchWords() []string {
+	s := &a.search
+	// What the service suggests is songs and singers, no podcasts.
+	if k := a.current().kind; s.sugFor != strings.TrimSpace(s.input) || k == pagePodcast || k == pageXyz {
+		return nil
+	}
+	return s.suggest
+}
+
+// searchStep moves the choice below the box d suggestions down or up.
+func (a *app) searchStep(d int) {
+	s := &a.search
+	words := a.searchWords()
+	if len(words) == 0 {
+		return
+	}
+	if s.sel < 0 {
+		s.sel = 0
+		if d < 0 {
+			s.sel = len(words) - 1
+		}
+		return
+	}
+	if s.sel += d; s.sel < 0 {
+		s.sel = 0
+	} else if s.sel >= len(words) {
+		s.sel = len(words) - 1
+	}
+}
+
+// searchKeys walks the suggestions below the box as the arrows are pressed
+// in it, which have nothing else to do in a line of text.
+func (a *app) searchKeys(k ui.TextKey) bool {
+	if k.Mods != 0 || k.Key != ui.KeyDown && k.Key != ui.KeyUp {
+		return false
+	}
+	d := 1
+	if k.Key == ui.KeyUp {
+		d = -1
+	}
+	a.searchStep(d)
+	return true
+}
+
+// chooseSearch searches what a row of the menu offers, and closes it.
+func (a *app) chooseSearch(v string) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return
+	}
+	s := &a.search
+	s.input, s.open, s.sel = v, false, -1
+	a.rememberSearch(v)
+	// On 小宇宙, the box searches its podcasts only.
+	switch a.current().kind {
+	case pagePodcast:
+		a.searchPodcasts(v)
+		return
+	case pageXyz:
+		a.searchXyz(v)
+		return
+	}
+	a.runSearch(v, 1)
+}
+
+// rest waits d for the text typed in the search box to rest, reporting
+// whether it did: it does not once the text changes, which closes stop, or
+// the request is over.
+func rest(ctx context.Context, stop <-chan struct{}, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-stop:
+		return false
+	case <-time.After(d):
+	}
+	// Both may be ready at once; the text is what the wait is for.
+	select {
+	case <-stop:
+		return false
+	default:
+		return true
+	}
+}
+
+// rememberSearch puts a search at the top of the history the box shows.
+func (a *app) rememberSearch(q string) {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return
+	}
+	out := make([]string, 1, searchHistoryMax)
+	out[0] = q
+	for _, h := range a.set.Searches {
+		if !strings.EqualFold(h, q) && len(out) < searchHistoryMax {
+			out = append(out, h)
+		}
+	}
+	a.set.Searches = out
+	a.saveSettings()
+}
+
+// clearSearches forgets the history the box shows.
+func (a *app) clearSearches() {
+	a.set.Searches = nil
+	a.saveSettings()
 }
 
 // showSearchTab switches the search page to a tab, which loads.
@@ -791,6 +1256,16 @@ func (a *app) loadSearchTab() {
 		a.searchSingers()
 	case s.tab == foundPlaylists && s.pls.page == 0 && !s.pls.loading:
 		a.searchPlaylists()
+	case s.tab == foundPodcasts:
+		a.loadSearchPodcasts()
+	}
+}
+
+// loadSearchPodcasts loads the first page of the podcasts found, unless
+// it has, or is loading it.
+func (a *app) loadSearchPodcasts() {
+	if f := &a.search.podcasts; a.search.query != "" && f.page == 0 && !f.loading {
+		a.morePodcastsFound()
 	}
 }
 
@@ -944,13 +1419,17 @@ func (a *app) logout() {
 	a.user = qqmusic.User{}
 	a.myLists, a.favLists = nil, nil
 	a.liked = map[int64]bool{}
-	a.home.guess, a.home.daily = nil, nil
+	a.home.guess, a.home.daily, a.home.radar, a.home.feed = nil, nil, nil, nil
 	a.radio = false
 	delete(a.lists, page{kind: pagePlaylist, dirid: 201})
 	a.toast("已退出登录")
 }
 
 func (a *app) toggleLike(s qqmusic.Song) {
+	if s.Source != "" {
+		a.toast("小宇宙单集不能加入「我喜欢」")
+		return
+	}
 	if !a.api.LoggedIn() {
 		a.openLogin()
 		return

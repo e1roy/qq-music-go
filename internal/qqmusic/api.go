@@ -9,6 +9,7 @@ import (
 	"html"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -289,25 +290,45 @@ func (c *Client) ToplistDetail(ctx context.Context, topID, offset, num int) (Top
 	return out.Data.toplist(), out.SongInfoList, err
 }
 
-// RecommendPlaylists returns the playlists of y.qq.com's front page.
-func (c *Client) RecommendPlaylists(ctx context.Context) ([]Playlist, error) {
+// RecommendPlaylists returns size playlists picked for the user, from the
+// from-th, as the 推荐 tab of the client's playlist square. Without a login
+// they are picked for anyone. more is false at the last of those picked:
+// what follows is only the latest made.
+func (c *Client) RecommendPlaylists(ctx context.Context, from, size int) (pls []Playlist, more bool, err error) {
 	var out struct {
-		VHot []struct {
-			ContentID flexInt `json:"content_id"`
-			Cover     string  `json:"cover"`
-			Title     string  `json:"title"`
-			ListenNum flexInt `json:"listen_num"`
-			Username  string  `json:"username"`
-		} `json:"v_hot"`
+		HasMore bool `json:"HasMore"`
+		List    []struct {
+			Playlist struct {
+				Basic struct {
+					Tid     flexInt `json:"tid"`
+					Title   string  `json:"title"`
+					Desc    string  `json:"desc"`
+					PlayCnt flexInt `json:"play_cnt"`
+					SongCnt flexInt `json:"song_cnt"`
+					Cover   struct {
+						Default string `json:"default_url"`
+						Medium  string `json:"medium_url"`
+					} `json:"cover"`
+					Creator struct {
+						Nick string `json:"nick"`
+					} `json:"creator"`
+				} `json:"basic"`
+			} `json:"Playlist"`
+		} `json:"List"`
 	}
-	if err := c.Call(ctx, Web, "playlist.HotRecommendServer", "get_hot_recommend", map[string]any{"async": 1, "cmd": 2}, &out); err != nil {
-		return nil, err
+	if err := c.Call(ctx, Web, "music.playlist.PlaylistSquare", "GetRecommendFeed", map[string]any{"From": from, "Size": size}, &out); err != nil {
+		return nil, false, err
 	}
-	pls := make([]Playlist, 0, len(out.VHot))
-	for _, p := range out.VHot {
-		pls = append(pls, Playlist{ID: int64(p.ContentID), Title: p.Title, Cover: p.Cover, Creator: p.Username, PlayCount: int64(p.ListenNum)})
+	pls = make([]Playlist, 0, len(out.List))
+	for _, it := range out.List {
+		b := it.Playlist.Basic
+		cover := b.Cover.Default
+		if cover == "" {
+			cover = b.Cover.Medium
+		}
+		pls = append(pls, Playlist{ID: int64(b.Tid), Title: b.Title, Desc: b.Desc, Cover: cover, Creator: b.Creator.Nick, PlayCount: int64(b.PlayCnt), SongCount: int(b.SongCnt)})
 	}
-	return pls, nil
+	return pls, out.HasMore, nil
 }
 
 // PlaylistCategory is a tag of the playlist square.
@@ -491,53 +512,100 @@ func (c *Client) SingerAlbums(ctx context.Context, mid string, order Order, begi
 	return albums, int(out.Total), err
 }
 
-// AlbumDetail returns what an album is, and all its songs.
-func (c *Client) AlbumDetail(ctx context.Context, mid string) (AlbumInfo, []Song, error) {
-	var out struct {
-		BasicInfo struct {
-			ID          flexInt `json:"albumID"`
-			Mid         string  `json:"albumMid"`
-			Name        string  `json:"albumName"`
-			Type        string  `json:"albumType"`
-			PublishDate string  `json:"publishDate"`
-			Desc        string  `json:"desc"`
-		} `json:"basicInfo"`
-		Company struct {
-			Name string `json:"name"`
-		} `json:"company"`
-		Singer struct {
-			SingerList []Singer `json:"singerList"`
-		} `json:"singer"`
-	}
-	err := c.Call(ctx, Web, "music.musichallAlbum.AlbumInfoServer", "GetAlbumDetail", map[string]any{"albumMid": mid}, &out)
-	if err != nil {
-		return AlbumInfo{Mid: mid}, nil, err
-	}
-	b := out.BasicInfo
+// rawAlbum is the data of GetAlbumDetail.
+type rawAlbum struct {
+	BasicInfo struct {
+		ID          flexInt `json:"albumID"`
+		Mid         string  `json:"albumMid"`
+		Name        string  `json:"albumName"`
+		Type        string  `json:"albumType"`
+		PublishDate string  `json:"publishDate"`
+		Desc        string  `json:"desc"`
+	} `json:"basicInfo"`
+	Company struct {
+		Name string `json:"name"`
+	} `json:"company"`
+	Singer struct {
+		SingerList []Singer `json:"singerList"`
+	} `json:"singer"`
+}
+
+func (r rawAlbum) album() AlbumInfo {
+	b := r.BasicInfo
 	al := AlbumInfo{ID: int64(b.ID), Mid: b.Mid, Name: b.Name, Type: b.Type, PublishDate: b.PublishDate,
-		Singers: out.Singer.SingerList, Company: out.Company.Name, Desc: cleanIntro(b.Desc)}
+		Singers: r.Singer.SingerList, Company: r.Company.Name, Desc: cleanIntro(b.Desc)}
 	names := make([]string, len(al.Singers))
 	for i, sg := range al.Singers {
 		names[i] = sg.Name
 	}
 	al.SingerName = strings.Join(names, "/")
+	return al
+}
 
+// albumParam asks for an album by its mid, or by its id when the mid is
+// not known, as of the podcasts some cards show.
+func albumParam(mid string, id int64) map[string]any {
+	if mid == "" {
+		return map[string]any{"albumID": id}
+	}
+	return map[string]any{"albumMid": mid}
+}
+
+// Album returns what an album is, by its mid or else its id.
+func (c *Client) Album(ctx context.Context, mid string, id int64) (AlbumInfo, error) {
+	var out rawAlbum
+	if err := c.Call(ctx, Web, "music.musichallAlbum.AlbumInfoServer", "GetAlbumDetail", albumParam(mid, id), &out); err != nil {
+		return AlbumInfo{ID: id, Mid: mid}, err
+	}
+	return out.album(), nil
+}
+
+// AlbumSongs returns songs of an album from begin, and how many it has:
+// a podcast's newest first.
+func (c *Client) AlbumSongs(ctx context.Context, mid string, begin, num int) ([]Episode, int, error) {
+	var out struct {
+		TotalNum flexInt `json:"totalNum"`
+		SongList []struct {
+			SongInfo struct {
+				Song
+				Index flexInt `json:"index_album"`
+			} `json:"songInfo"`
+			ListenCount flexInt `json:"listenCount"`
+			UploadTime  string  `json:"uploadTime"`
+		} `json:"songList"`
+	}
+	err := c.Call(ctx, Web, "music.musichallAlbum.AlbumSongList", "GetAlbumSongList",
+		map[string]any{"albumMid": mid, "begin": begin, "num": num, "order": 2}, &out)
+	eps := make([]Episode, 0, len(out.SongList))
+	for _, s := range out.SongList {
+		eps = append(eps, Episode{Song: s.SongInfo.Song, Index: int(s.SongInfo.Index), ListenCount: int64(s.ListenCount), UploadTime: s.UploadTime})
+	}
+	return eps, int(out.TotalNum), err
+}
+
+// PodcastPage is how many episodes of a podcast AlbumDetail and a page of
+// them get: a podcast may have hundreds.
+const PodcastPage = 30
+
+// AlbumDetail returns what an album is, by its mid or else its id, with its
+// songs and how many it has: all of them, or a podcast's newest
+// PodcastPage, the next of which AlbumSongs gets.
+func (c *Client) AlbumDetail(ctx context.Context, mid string, id int64) (AlbumInfo, []Episode, int, error) {
+	al, err := c.Album(ctx, mid, id)
+	if err != nil {
+		return al, nil, 0, err
+	}
+	if al.IsPodcast() {
+		eps, total, err := c.AlbumSongs(ctx, al.Mid, 0, PodcastPage)
+		return al, eps, total, err
+	}
 	const page = 100
-	var songs []Song
+	var eps []Episode
 	for {
-		var list struct {
-			TotalNum flexInt `json:"totalNum"`
-			SongList []struct {
-				SongInfo Song `json:"songInfo"`
-			} `json:"songList"`
-		}
-		err = c.Call(ctx, Web, "music.musichallAlbum.AlbumSongList", "GetAlbumSongList",
-			map[string]any{"albumMid": mid, "begin": len(songs), "num": page, "order": 2}, &list)
-		for _, s := range list.SongList {
-			songs = append(songs, s.SongInfo)
-		}
-		if err != nil || len(list.SongList) == 0 || len(songs) >= int(list.TotalNum) {
-			return al, songs, err
+		more, total, err := c.AlbumSongs(ctx, al.Mid, len(eps), page)
+		eps = append(eps, more...)
+		if err != nil || len(more) == 0 || len(eps) >= total {
+			return al, eps, len(eps), err
 		}
 	}
 }
@@ -665,16 +733,11 @@ func (c *Client) SongURL(ctx context.Context, s Song, q Quality) (string, Qualit
 	if media == "" {
 		media = s.Mid
 	}
-	var tries []Quality
-	if q == High && s.File.Size320 > 0 {
-		tries = append(tries, High)
-	}
-	tries = append(tries, Standard)
+	tries := s.File.files(q)
 	cr := c.Credential()
 	names := make([]string, len(tries))
 	for i, t := range tries {
-		pre, ext := t.prefix()
-		names[i] = pre + media + ext
+		names[i] = t.prefix + media + t.ext
 	}
 	mids := make([]string, len(tries))
 	types := make([]int, len(tries))
@@ -707,7 +770,7 @@ func (c *Client) SongURL(ctx context.Context, s Song, q Quality) (string, Qualit
 		if info.Purl != "" {
 			got := Standard
 			if i < len(tries) {
-				got = tries[i]
+				got = tries[i].q
 			}
 			if strings.HasPrefix(info.Purl, "http") {
 				return info.Purl, got, nil
@@ -843,8 +906,7 @@ func (c *Client) LikeSong(ctx context.Context, s Song, like bool) error {
 	}
 	// 我喜欢 (dirid 201) turns writes from the web away (code 80105): the
 	// app's comm goes through.
-	app := map[string]any{"ct": 11, "cv": 13020508, "tmeAppID": "qqmusic"}
-	err := c.callComm(ctx, Web, app, "music.musicasset.PlaylistDetailWrite", method, map[string]any{
+	err := c.callComm(ctx, Web, appComm, "music.musicasset.PlaylistDetailWrite", method, map[string]any{
 		"dirId":      201,
 		"v_songInfo": []map[string]any{{"songId": int64(s.ID), "songType": s.Type}},
 	}, &out)
@@ -863,6 +925,24 @@ func (c *Client) GuessYouLike(ctx context.Context) ([]Song, error) {
 		"id": 99, "num": 10, "from": 0, "scene": 0, "song_ids": []int{},
 	}, &out)
 	return out.Tracks, err
+}
+
+// RadarSongs returns songs found from those the user liked (私人雷达),
+// page from 1; each page has new ones, until more is false.
+func (c *Client) RadarSongs(ctx context.Context, page int) (songs []Song, more bool, err error) {
+	var out struct {
+		HasMore  bool `json:"HasMore"`
+		VecSongs []struct {
+			Track Song `json:"Track"`
+		} `json:"VecSongs"`
+	}
+	err = c.Call(ctx, Web, "music.recommend.TrackRelationServer", "GetRadarSong", map[string]any{
+		"Page": page, "ReqType": 0, "FavSongs": []any{}, "EntranceSongs": []any{},
+	}, &out)
+	for _, it := range out.VecSongs {
+		songs = append(songs, it.Track)
+	}
+	return songs, out.HasMore, err
 }
 
 // DailySongs returns 每日30首, the playlist made for the user each day,
@@ -901,4 +981,384 @@ func (c *Client) DailySongs(ctx context.Context) (Playlist, []Song, error) {
 		}
 	}
 	return Playlist{}, nil, errors.New("qqmusic: 没有找到每日30首")
+}
+
+// appComm makes a request one of the phone app: some APIs answer it only,
+// or answer it otherwise.
+var appComm = map[string]any{"ct": 11, "cv": 13020508, "tmeAppID": "qqmusic"}
+
+// feedPages is how many pages of the front page's feed RecommendFeed
+// takes: the playlists for the user come on the second.
+const feedPages = 2
+
+// RecommendFeed returns the sections of songs and of playlists of the
+// phone app's front page, made for the user. Asked by the web, the feed
+// has the desktop's sections instead.
+func (c *Client) RecommendFeed(ctx context.Context) ([]FeedShelf, error) {
+	type card struct {
+		Type int `json:"type"`
+		// A number for songs and playlists, a link for others.
+		ID    json.RawMessage `json:"id"`
+		Title string          `json:"title"`
+		Cover string          `json:"cover"`
+		Cnt   flexInt         `json:"cnt"`
+	}
+	var shelves []FeedShelf
+	// The ids of each shelf's songs, which the feed gives no more of.
+	ids := map[int][]int64{}
+	for pg := 1; pg <= feedPages; pg++ {
+		var out struct {
+			Shelves []struct {
+				Template string `json:"title_template"`
+				Content  string `json:"title_content"`
+				Niches   []struct {
+					Cards []card `json:"v_card"`
+				} `json:"v_niche"`
+			} `json:"v_shelf"`
+		}
+		err := c.callComm(ctx, Web, appComm, "music.recommend.RecommendFeed", "get_recommend_feed", map[string]any{
+			"direction": min(pg-1, 1), "page": pg, "v_cache": []any{}, "v_uniq": []any{}, "s_num": len(shelves),
+		}, &out)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range out.Shelves {
+			title := strings.TrimSpace(strings.ReplaceAll(s.Template, "{String}", s.Content))
+			if s.Template == "" {
+				title = s.Content
+			}
+			var cards []card
+			for _, n := range s.Niches {
+				cards = append(cards, n.Cards...)
+			}
+			// A shelf of songs or of playlists has them only; one that
+			// starts with something else (entries, programs, live
+			// shows) is not shown.
+			if len(cards) == 0 || title == "" || cards[0].Type != 200 && cards[0].Type != 500 {
+				continue
+			}
+			sh := FeedShelf{Title: title}
+			for _, cd := range cards {
+				id, _ := strconv.ParseInt(strings.Trim(string(cd.ID), `"`), 10, 64)
+				switch {
+				case cd.Type != cards[0].Type || id == 0:
+				case cd.Type == 200:
+					ids[len(shelves)] = append(ids[len(shelves)], id)
+				default:
+					sh.Playlists = append(sh.Playlists, Playlist{ID: id, Title: cd.Title, Cover: cd.Cover, PlayCount: int64(cd.Cnt)})
+				}
+			}
+			shelves = append(shelves, sh)
+		}
+	}
+	reqs := map[string]Req{}
+	for i, list := range ids {
+		reqs[strconv.Itoa(i)] = Req{"music.trackInfo.UniformRuleCtrl", "CgiGetTrackInfo", map[string]any{
+			"ids": list, "types": make([]int, len(list)),
+		}}
+	}
+	if len(reqs) > 0 {
+		data, errs, err := c.CallMany(ctx, Web, nil, reqs)
+		if err != nil {
+			return nil, err
+		}
+		for k := range reqs {
+			var out struct {
+				Tracks []Song `json:"tracks"`
+			}
+			if errs[k] == nil && json.Unmarshal(data[k], &out) == nil {
+				i, _ := strconv.Atoi(k)
+				shelves[i].Songs = out.Tracks
+			}
+		}
+	}
+	// Those whose songs did not come are left out.
+	return slices.DeleteFunc(shelves, func(s FeedShelf) bool {
+		return len(s.Songs) == 0 && len(s.Playlists) == 0
+	}), nil
+}
+
+// podcastArea is the encArea of 播客专区, as its H5 page has it: no service
+// lists the areas.
+const podcastArea = "004Z03m934o6En"
+
+// rawCard is a card of the podcast area, or a podcast PodcastPicks gives.
+type rawCard struct {
+	Type int `json:"type"`
+	// A number for shows and episodes, a name for the others.
+	ID       json.RawMessage `json:"id"`
+	Subid    string          `json:"subid"`
+	Title    string          `json:"title"`
+	Subtitle string          `json:"subtitle"`
+	Cover    string          `json:"cover"`
+	Cnt      flexInt         `json:"cnt"`
+	Misc     struct {
+		Num        flexInt `json:"num"`
+		Recommend  string  `json:"recommend"`
+		SchemaType string  `json:"schemaType"`
+		SchemaID   string  `json:"schemaNewParams"`
+	} `json:"miscellany"`
+}
+
+// id is the card's number, 0 if it has a name instead.
+func (r rawCard) id() int64 {
+	n, _ := strconv.ParseInt(strings.Trim(string(r.ID), `"`), 10, 64)
+	return n
+}
+
+// rawArea is the data of getAreaHomePage.
+type rawArea struct {
+	Title string `json:"title"`
+	Share struct {
+		Desc string `json:"desc"`
+	} `json:"share"`
+	Shelves []struct {
+		Template string `json:"title_template"`
+		Content  string `json:"title_content"`
+		Niches   []struct {
+			Cards []rawCard `json:"v_card"`
+		} `json:"v_niche"`
+	} `json:"v_shelf"`
+}
+
+// area reads the shelves of shows, of hosts and of episodes, by shelf
+// the ids of the episodes, whose songs are to be asked for. Banners and
+// topics, which link elsewhere, are left out.
+func (r rawArea) area() (PodcastArea, map[int][]int64) {
+	a := PodcastArea{Title: r.Title, Desc: r.Share.Desc}
+	ids := map[int][]int64{}
+	for _, s := range r.Shelves {
+		title := strings.TrimSpace(strings.ReplaceAll(s.Template, "{String}", s.Content))
+		if title == "" {
+			continue
+		}
+		sh := PodcastShelf{Title: title}
+		// A shelf may show a show twice: its cards are told apart by it.
+		has := func(id int64, mid string) bool {
+			return slices.ContainsFunc(sh.Shows, func(s Show) bool { return s.Mid == mid && (mid != "" || s.ID == id) })
+		}
+		var eps []int64
+		for _, n := range s.Niches {
+			for _, cd := range n.Cards {
+				switch cd.Type {
+				case 400:
+					if (cd.Subid != "" || cd.id() != 0) && !has(cd.id(), cd.Subid) {
+						sh.Shows = append(sh.Shows, Show{ID: cd.id(), Mid: cd.Subid, Title: html.UnescapeString(cd.Title),
+							Host: html.UnescapeString(cd.Subtitle), Cover: cd.Cover, Episodes: int(cd.Misc.Num)})
+					}
+				case 2100:
+					// The show a host's card opens is an album's id.
+					if id, _ := strconv.ParseInt(cd.Misc.SchemaID, 10, 64); id != 0 && cd.Misc.SchemaType == "2" && !has(id, "") {
+						sh.Hosts = true
+						sh.Shows = append(sh.Shows, Show{ID: id, Title: html.UnescapeString(cd.Title), Cover: cd.Cover})
+					}
+				case 200:
+					if id := cd.id(); id != 0 {
+						eps = append(eps, id)
+					}
+				}
+			}
+		}
+		switch {
+		case len(sh.Shows) > 0:
+			a.Shelves = append(a.Shelves, sh)
+		case len(eps) > 0:
+			ids[len(a.Shelves)] = eps
+			a.Shelves = append(a.Shelves, sh)
+		}
+	}
+	return a, ids
+}
+
+// PodcastArea returns QQ Music's podcasts (播客专区), 小宇宙's among them:
+// shelves of shows, of hosts and of episodes. It needs no login. Its shows
+// are old ones; PodcastPicks has new ones.
+func (c *Client) PodcastArea(ctx context.Context) (PodcastArea, error) {
+	var out rawArea
+	if err := c.Call(ctx, Web, "music.area.AreaHome", "getAreaHomePage", map[string]any{"cmd": 0, "encArea": podcastArea}, &out); err != nil {
+		return PodcastArea{}, err
+	}
+	a, ids := out.area()
+	if len(ids) > 0 {
+		// The songs of the episodes, all in one request.
+		reqs := map[string]Req{}
+		for i, list := range ids {
+			reqs[strconv.Itoa(i)] = Req{"music.trackInfo.UniformRuleCtrl", "CgiGetTrackInfo", map[string]any{
+				"ids": list, "types": make([]int, len(list)),
+			}}
+		}
+		data, errs, err := c.CallMany(ctx, Web, nil, reqs)
+		if err != nil {
+			return PodcastArea{}, err
+		}
+		for k := range reqs {
+			var out struct {
+				Tracks []Song `json:"tracks"`
+			}
+			if errs[k] == nil && json.Unmarshal(data[k], &out) == nil {
+				i, _ := strconv.Atoi(k)
+				a.Shelves[i].Episodes = out.Tracks
+			}
+		}
+	}
+	// Those whose songs did not come are left out.
+	a.Shelves = slices.DeleteFunc(a.Shelves, func(s PodcastShelf) bool {
+		return len(s.Shows) == 0 && len(s.Episodes) == 0
+	})
+	return a, nil
+}
+
+// PodcastPicks returns six podcasts, with what each is about, others at
+// each call: 换一批 is calling it again. They know only their ids.
+func (c *Client) PodcastPicks(ctx context.Context) ([]Show, error) {
+	var out struct {
+		RadioList []rawCard `json:"radioList"`
+	}
+	err := c.Call(ctx, Web, "music.longRadio.recommend", "getRadioList", map[string]any{}, &out)
+	shows := make([]Show, 0, len(out.RadioList))
+	for _, cd := range out.RadioList {
+		if id := cd.id(); id != 0 {
+			shows = append(shows, Show{ID: id, Title: html.UnescapeString(cd.Title), Host: html.UnescapeString(cd.Subtitle),
+				Cover: cd.Cover, Intro: cleanIntro(cd.Misc.Recommend), PlayCount: int64(cd.Cnt)})
+		}
+	}
+	return shows, err
+}
+
+// podcasts reports which of the albums are podcasts, asking of them all in
+// one request: what a search finds does not say.
+func (c *Client) podcasts(ctx context.Context, mids []string) (map[string]bool, error) {
+	is := map[string]bool{}
+	if len(mids) == 0 {
+		return is, nil
+	}
+	reqs := map[string]Req{}
+	for _, mid := range mids {
+		reqs[mid] = Req{"music.musichallAlbum.AlbumInfoServer", "GetAlbumDetail", map[string]any{"albumMid": mid}}
+	}
+	data, errs, err := c.CallMany(ctx, Web, nil, reqs)
+	if err != nil {
+		return nil, err
+	}
+	for mid := range reqs {
+		var out rawAlbum
+		if errs[mid] == nil && json.Unmarshal(data[mid], &out) == nil {
+			is[mid] = out.album().IsPodcast()
+		}
+	}
+	return is, nil
+}
+
+// SearchPodcasts finds podcasts; page starts at 1. The search finds albums
+// of every kind, of which it keeps the podcasts: a page may have fewer
+// than num, or none, and more says whether pages follow.
+func (c *Client) SearchPodcasts(ctx context.Context, query string, page, num int) (shows []Show, more bool, err error) {
+	var out struct {
+		Meta struct {
+			Sum flexInt `json:"sum"`
+		} `json:"meta"`
+		Body struct {
+			Album struct {
+				List []struct {
+					ID      flexInt  `json:"albumID"`
+					Mid     string   `json:"albumMID"`
+					Name    string   `json:"albumName"`
+					Singers []Singer `json:"singer_list"`
+					Count   flexInt  `json:"song_count"`
+				} `json:"list"`
+			} `json:"album"`
+		} `json:"body"`
+	}
+	// A podcast's name finds it as the clients do, straight (直达) from a
+	// search of songs: the albums found may not have it. Being an extra, it
+	// never fails the search.
+	if page == 1 {
+		var top struct {
+			Body struct {
+				Zhida json.RawMessage `json:"zhida"`
+			} `json:"body"`
+		}
+		if c.search(ctx, query, 1, 1, 0, &top) == nil {
+			shows = directPodcasts(top.Body.Zhida)
+		}
+	}
+	if err := c.search(ctx, query, page, num, 2, &out); err != nil {
+		return nil, false, err
+	}
+	list := out.Body.Album.List
+	mids := make([]string, 0, len(list))
+	for _, al := range list {
+		if al.Mid != "" {
+			mids = append(mids, al.Mid)
+		}
+	}
+	is, err := c.podcasts(ctx, mids)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, al := range list {
+		if is[al.Mid] && !slices.ContainsFunc(shows, func(s Show) bool { return s.Mid == al.Mid }) {
+			host := Song{Singers: al.Singers}.Artists()
+			shows = append(shows, Show{ID: int64(al.ID), Mid: al.Mid, Title: html.UnescapeString(al.Name), Host: html.UnescapeString(host),
+				Cover: AlbumCover(al.Mid, 300), Episodes: int(al.Count)})
+		}
+	}
+	return shows, len(list) > 0 && page*num < int(out.Meta.Sum), nil
+}
+
+// directPodcasts reads the podcasts a search goes straight to (直达), such
+// as "播客: 来都来了 | 听了再走" beside a singer: long audio (channel 10025).
+func directPodcasts(b json.RawMessage) []Show {
+	var z struct {
+		List []struct {
+			Title string `json:"title"`
+			Info  struct {
+				Mid     string          `json:"mid"`
+				Channel json.RawMessage `json:"channel_type"`
+				Tracks  json.RawMessage `json:"track_num"`
+			} `json:"custom_info"`
+		} `json:"list"`
+	}
+	if len(b) == 0 || json.Unmarshal(b, &z) != nil {
+		return nil
+	}
+	var shows []Show
+	for _, it := range z.List {
+		if it.Info.Mid == "" || strings.Trim(string(it.Info.Channel), `"`) != "10025" {
+			continue
+		}
+		// The title is the kind and the name.
+		title := strings.ReplaceAll(html.UnescapeString(it.Title), "：", ":")
+		if _, name, ok := strings.Cut(title, ":"); ok {
+			title = name
+		}
+		n, _ := strconv.Atoi(strings.Trim(string(it.Info.Tracks), `"`))
+		shows = append(shows, Show{Mid: it.Info.Mid, Title: strings.TrimSpace(title), Cover: AlbumCover(it.Info.Mid, 300), Episodes: n})
+	}
+	return shows
+}
+
+// SearchEpisodes finds episodes of podcasts; page starts at 1. As
+// SearchPodcasts, it keeps of the songs found those of podcasts.
+func (c *Client) SearchEpisodes(ctx context.Context, query string, page, num int) (eps []Song, more bool, err error) {
+	songs, total, _, err := c.Search(ctx, query, page, num)
+	if err != nil {
+		return nil, false, err
+	}
+	var mids []string
+	for _, s := range songs {
+		if s.Album.Mid != "" && !slices.Contains(mids, s.Album.Mid) {
+			mids = append(mids, s.Album.Mid)
+		}
+	}
+	is, err := c.podcasts(ctx, mids)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, s := range songs {
+		if is[s.Album.Mid] {
+			eps = append(eps, s)
+		}
+	}
+	return eps, len(songs) > 0 && page*num < total, nil
 }

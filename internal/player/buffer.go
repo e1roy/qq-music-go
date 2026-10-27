@@ -98,6 +98,26 @@ func (b *buffer) ReadAt(p []byte, off int64) (int, error) {
 	return n, nil
 }
 
+// all waits for the whole file and returns it; it must not be changed.
+func (b *buffer) all() ([]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for !b.done {
+		b.cond.Wait()
+	}
+	return b.data, b.err
+}
+
+// known is the length of the file the server told, or -1.
+func (b *buffer) known() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.size > 0 {
+		return b.size
+	}
+	return -1
+}
+
 // Size is the length of the file, or what was downloaded if unknown.
 func (b *buffer) Size() int64 {
 	b.mu.Lock()

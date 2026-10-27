@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -24,8 +25,10 @@ var (
 	colAccentFg  = ui.Hex("#052e16")             // --primary-foreground
 	colText      = ui.Hex("#fafafa")             // --foreground
 	colMuted     = ui.Hex("#a1a1a1")             // --muted-foreground
+	colSubtle    = ui.RGBA(255, 255, 255, 0.55)  // what is less than muted: singers under titles, a section's actions
 	colDim       = ui.Hex("#737373")             // --ring
 	colLine      = ui.RGBA(255, 255, 255, 0.10)  // --border
+	colFaint     = ui.RGBA(255, 255, 255, 0.05)  // the edge of cards in a grid, there but not looked at
 	colInput     = ui.RGBA(255, 255, 255, 0.15)  // --input
 	colInputBg   = ui.RGBA(255, 255, 255, 0.045) // --input/30, the face of inputs and outline buttons
 	colInputBgH  = ui.RGBA(255, 255, 255, 0.075) // --input/50
@@ -180,36 +183,40 @@ func (a *app) view(c *ui.Context) {
 // corners. The border fades out towards the top, where the page's tint and
 // the title bar already mark the panel's edge: a full border there makes
 // the top look heavy.
+//
+// Only the corners are paths, each its own, and the sides are rectangles:
+// the mask of a path is as large as its bounds, and two around the panel
+// of a large window overflow the glyph atlas, which is then repacked in
+// every frame that paints, and every motion stutters.
 func fadingPanelCorners(p *ui.Painter, r ui.Rect) {
-	maskCorners(p, r)
-	// The path runs along the middle of a border 1 wide, inside r.
-	const rad, k, hw = radiusXl - 0.5, 0.5523, 0.5
-	x0, y0, x1, y1 := r.X+hw, r.Y+hw, r.X+r.W-hw, r.Y+r.H-hw
-	var path ui.Path
-	path.MoveTo(x0+rad, y0).LineTo(x1-rad, y0).
-		CubeTo(x1-rad+rad*k, y0, x1, y0+rad-rad*k, x1, y0+rad).LineTo(x1, y1-rad).
-		CubeTo(x1, y1-rad+rad*k, x1-rad+rad*k, y1, x1-rad, y1).LineTo(x0+rad, y1).
-		CubeTo(x0+rad-rad*k, y1, x0, y1-rad+rad*k, x0, y1-rad).LineTo(x0, y0+rad).
-		CubeTo(x0, y0+rad-rad*k, x0+rad-rad*k, y0, x0+rad, y0).Close()
-	// Angle 0 runs from the bottom up.
-	p.StrokePathGradient(&path, 1, ui.LinearGradient{From: colLine.Alpha(0.7), To: colLine.Alpha(0.1), Angle: 0, Start: 0.25, End: 1})
-}
-
-// maskCorners paints the frame's color over the corners of r, outside its
-// rounding.
-func maskCorners(p *ui.Painter, r ui.Rect) {
+	// Angle 0 runs from the bottom up: the bottom quarter is at From, and
+	// the top all but at To.
+	g := ui.LinearGradient{From: colLine.Alpha(0.7), To: colLine.Alpha(0.1), Angle: 0, Start: 0.25, End: 1}
 	// The handles of a quarter circle drawn with a cubic Bézier are 0.5523
-	// of the radius from its ends.
-	const rad, k = radiusXl, 1 - 0.5523
-	var path ui.Path
+	// of the radius from its ends. The border is 1 wide, inside r.
+	const rad, in, k = radiusXl, radiusXl - 1, 0.5523
 	for _, cn := range [4][4]float32{
 		{r.X, r.Y, 1, 1}, {r.X + r.W, r.Y, -1, 1}, {r.X + r.W, r.Y + r.H, -1, -1}, {r.X, r.Y + r.H, 1, -1},
 	} {
+		// The corner, and the center of its rounding.
 		x, y, dx, dy := cn[0], cn[1], cn[2], cn[3]
-		path.MoveTo(x, y).LineTo(x+dx*rad, y).
-			CubeTo(x+dx*rad*k, y, x, y+dy*rad*k, x, y+dy*rad).Close()
+		cx, cy := x+dx*rad, y+dy*rad
+		var mask, ring ui.Path
+		mask.MoveTo(x, y).LineTo(cx, y).
+			CubeTo(cx-dx*rad*k, y, x, cy-dy*rad*k, x, cy).Close()
+		p.FillPath(&mask, colWindow)
+		ring.MoveTo(x, cy).CubeTo(x, cy-dy*rad*k, cx-dx*rad*k, y, cx, y).
+			LineTo(cx, cy-dy*in).CubeTo(cx-dx*in*k, cy-dy*in, cx-dx*in, cy-dy*in*k, cx-dx*in, cy).Close()
+		col := g.From
+		if dy > 0 {
+			col = g.To
+		}
+		p.FillPath(&ring, col)
 	}
-	p.FillPath(&path, colWindow)
+	p.Fill(ui.Rect{X: r.X + rad, Y: r.Y, W: r.W - 2*rad, H: 1}, g.To, 0)
+	p.Fill(ui.Rect{X: r.X + rad, Y: r.Y + r.H - 1, W: r.W - 2*rad, H: 1}, g.From, 0)
+	p.FillGradient(ui.Rect{X: r.X, Y: r.Y + rad, W: 1, H: r.H - 2*rad}, g, 0)
+	p.FillGradient(ui.Rect{X: r.X + r.W - 1, Y: r.Y + rad, W: 1, H: r.H - 2*rad}, g, 0)
 }
 
 // windowControlsWidth is the room the window controls take from the right
@@ -228,11 +235,14 @@ func (a *app) topbar(c *ui.Context) {
 	ui.Row(c).Height(topHeight).PaddingX(16).AlignItems(ui.Center).DragWindow().Children(func() {
 		// As wide as each other, so that search is in the middle.
 		ui.Row(c).Grow(1).Gap(4).AlignItems(ui.Center).Children(func() {
-			if ghostButton(c, icBack, len(a.history) > 1, "后退").Clicked() {
+			if ghostButton(c, icBack, len(a.history) > 1, "后退", false).Clicked() {
 				a.back()
 			}
-			if ghostButton(c, icForward, len(a.future) > 0, "前进").Clicked() {
+			if ghostButton(c, icForward, len(a.future) > 0, "前进", false).Clicked() {
 				a.forward()
+			}
+			if ghostButton(c, icRefresh, a.current().kind != pageRecent, "刷新", a.refreshing()).Clicked() {
+				a.refresh()
 			}
 		})
 		a.searchBox(c)
@@ -278,41 +288,166 @@ func windowButton(c *ui.Context, ic *ui.SVG, tip string, close bool) ui.Element 
 }
 
 // ghostButton is shadcn's ghost icon button, 32 square, which may be
-// disabled.
-func ghostButton(c *ui.Context, ic *ui.SVG, enabled bool, tip string) ui.Element {
+// disabled; spin turns its icon while what it starts goes on.
+func ghostButton(c *ui.Context, ic *ui.SVG, enabled bool, tip string, spin bool) ui.Element {
 	b := ui.Box(c).Size(32, 32).Radius(radiusMd).Center().Tooltip(tip)
 	col := colDim
 	if enabled {
 		b.Cursor(ui.CursorPointer)
-		col = colText
+		col = colMuted
 		if b.Hovered() {
 			b.Background(colHover)
+			col = colText
 		}
 	}
-	b.Children(func() { ui.Icon(c, ic).FontSize(16).TextColor(col) })
+	turn := float32(0)
+	if spin {
+		turn = b.Loop("spin", time.Second, ui.Linear) * 360
+	}
+	b.Children(func() { ui.Icon(c, ic).FontSize(16).TextColor(col).Rotate(turn) })
 	if !enabled {
 		return ui.Element{}
 	}
 	return b
 }
 
-// searchBox is shadcn's input, with an icon before the text.
+// searchBox is shadcn's input, with an icon before the text, and hanging
+// below it what was searched before, or what the text may become.
 func (a *app) searchBox(c *ui.Context) {
+	s := &a.search
+	podcasts := a.current().kind == pagePodcast
+	xyzShown := a.current().kind == pageXyz
 	box := ui.Row(c).Width(360).MinWidth(140).Height(32).Radius(radiusMd).Background(colInputBg).Border(1, colInput).PaddingX(10).Gap(8).AlignItems(ui.Center)
 	box.Children(func() {
 		ui.Icon(c, icSearch).FontSize(16).TextColor(colMuted)
-		in := ui.TextInputBase(c, &a.search.input).Placeholder("搜索歌曲、歌手、专辑…").Label("搜索歌曲").Grow(1).FontSize(14)
-		if in.Submitted() && a.search.input != "" {
-			a.runSearch(a.search.input, 1)
+		placeholder, label := "搜索歌曲、歌手、专辑…", "搜索歌曲"
+		if podcasts {
+			placeholder, label = "搜索小宇宙的节目、单集…", "搜索播客"
 		}
-		if in.FocusWithin() {
+		if xyzShown {
+			placeholder, label = "搜索小宇宙官方的节目、单集…", "搜索小宇宙"
+		}
+		in := ui.TextInputBase(c, &s.input).Placeholder(placeholder).Label(label).Grow(1).FontSize(14).FocusBind(&s.focus, true)
+		in.OnTextKey(a.searchKeys)
+		// Typing opens the menu, and asks for what the text may become
+		// once it rests: what was chosen before is not what is typed.
+		if in.Changed() {
+			s.open, s.sel = true, -1
+			if !podcasts && !xyzShown {
+				a.suggestAsTyped(s.input)
+			}
+		}
+		if in.Submitted() && s.input != "" {
+			if words := a.searchWords(); s.sel >= 0 && s.sel < len(words) {
+				a.chooseSearch(words[s.sel])
+			} else {
+				a.chooseSearch(s.input)
+			}
+		}
+		// A press opens it again once Escape closed it, or a row took it.
+		if in.Clicked() {
+			s.open = true
+		}
+		// FocusWithin stays true while another window is in front, Focused
+		// does not: switching away closes the menu, and coming back, the
+		// focus never having left the box, does not open it again.
+		focused := in.FocusWithin()
+		// A press on nothing that takes the focus leaves it nowhere, and
+		// MyGo gives it back to the box, which had it as the menu opened,
+		// once the menu is gone. Coming so, neither by a press nor by the
+		// keyboard, it is let go.
+		if focused && !s.focused && in.Focused() && !in.FocusVisible() && !in.Pressed() && !in.Clicked() {
+			s.focus, focused = false, false
+			c.Invalidate()
+		}
+		if focused && in.Focused() {
 			box.Border(1, colDim).Shadow(0, 0, 0, 3, colRing)
-		} else if box.Hovered() {
-			box.Background(colInputBgH)
+			if !s.focused {
+				s.open = true
+			}
+		} else {
+			if box.Hovered() {
+				box.Background(colInputBgH)
+			}
+			s.open = false
 		}
-		if a.search.input != "" {
-			if ui.Box(c).Cursor(ui.CursorPointer).Children(func() { ui.Icon(c, icClose).FontSize(14).TextColor(colMuted) }).Clicked() {
-				a.search.input = ""
+		s.focused = focused
+		if !s.open {
+			s.sel = -1
+		}
+		if s.input != "" {
+			clear := ui.Box(c).Padding(2).Cursor(ui.CursorPointer).KeepFocus()
+			clear.Children(func() { ui.Icon(c, icClose).FontSize(14).TextColor(colMuted) })
+			if clear.Clicked() {
+				s.input, s.open, s.sel = "", true, -1
+				a.suggestAsTyped("")
+				// Cleared on 小宇宙, it goes back to the shelves.
+				if podcasts && a.podcast.search.query != "" {
+					a.searchPodcasts("")
+				}
+				if xyzShown && a.xyz.search.query != "" {
+					a.searchXyz("")
+				}
+			}
+		}
+	})
+	a.searchMenu(c, box)
+}
+
+// searchMenu hangs below the search box: the searches made before while it
+// is empty, and as the text is typed, the search of it and what the text
+// may become, which the arrows choose and Enter searches.
+func (a *app) searchMenu(c *ui.Context, anchor ui.Element) {
+	s := &a.search
+	q := strings.TrimSpace(s.input)
+	if !s.open || q == "" && len(a.set.Searches) == 0 {
+		return
+	}
+	words := a.searchWords()
+	ui.PopoverBase(c, anchor, &s.open, func(panel ui.Element) {
+		panel.AttachTo(anchor, ui.AnchorBottomStart, ui.AnchorTopStart).Margin(6, 0, 0, 0).
+			Padding(4).Gap(1).Width(360).Radius(radiusLg).Background(colCard).Border(1, colLine).
+			Shadow(0, 8, 24, 0, colShadow).KeepFocus()
+		// A row picks its text, which the box takes and searches; i is the
+		// suggestion it is, -1 for a row the arrows cannot reach.
+		row := func(key string, i int, label string, ic *ui.SVG) ui.Element {
+			r := ui.Row(c.Key(key)).Padding(6, 8).Gap(8).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+			if r.Hovered() || i >= 0 && i == s.sel {
+				r.Background(colHover)
+			}
+			r.Children(func() {
+				ui.Icon(c, ic).FontSize(14).TextColor(colMuted)
+				ui.Text(c, label).FontSize(13).Grow(1).SingleLine()
+			})
+			return r
+		}
+		if q == "" {
+			ui.Row(c).Padding(4, 4, 4, 8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "搜索历史").FontSize(12).TextColor(colMuted).Grow(1)
+				if iconButton(c, icTrash, 13, colMuted, "清空搜索历史").Clicked() {
+					a.clearSearches()
+				}
+			})
+			for _, h := range a.set.Searches {
+				if row("hist "+h, -1, h, icClock).Clicked() {
+					a.chooseSearch(h)
+				}
+			}
+			return
+		}
+		label := "搜索 “" + q + "”"
+		switch a.current().kind {
+		case pagePodcast:
+			label = "在小宇宙中搜索 “" + q + "”"
+		case pageXyz:
+			label = "在小宇宙官方中搜索 “" + q + "”"
+		}
+		if row("query "+q, -1, label, icSearch).Clicked() {
+			a.chooseSearch(q)
+		}
+		for i, w := range words {
+			if row("sug "+w, i, w, icSearch).Clicked() {
+				a.chooseSearch(w)
 			}
 		}
 	})
@@ -489,6 +624,25 @@ func badge(c *ui.Context, label string, col ui.Color) ui.Element {
 	return ui.Text(c, label).FontSize(11).FontWeight(500).TextColor(col).Padding(1, 6).Radius(radiusSm).Border(1, col.Alpha(0.45)).NoWrap()
 }
 
+// podcastTitle is the title of 小宇宙, its source raised at its top right
+// as a footnote mark, and beside it a quiet button to the other one.
+func (a *app) podcastTitle(c *ui.Context) {
+	source, other := "QQ音乐", "切换到小宇宙官方"
+	if a.set.XyzOfficial {
+		source, other = "官方", "切换到 QQ 音乐的小宇宙"
+	}
+	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(3).AlignItems(ui.Start).Children(func() {
+			ui.Text(c, "小宇宙").FontSize(26).FontWeight(600).LetterSpacing(-0.6)
+			ui.Text(c, source).FontSize(10).FontWeight(600).TextColor(colAccent).Background(colAccent.Alpha(0.14)).
+				Padding(1, 6).Radius(99).MarginY(2).NoWrap()
+		})
+		if iconButton(c, icSwap, 15, colMuted, other).Label(other).Clicked() {
+			a.switchPodcasts()
+		}
+	})
+}
+
 // sidebar is the library on the left, as shadcn's Sidebar: groups of
 // menu items under small labels, the user at the foot.
 func (a *app) sidebar(c *ui.Context) {
@@ -501,15 +655,14 @@ func (a *app) sidebar(c *ui.Context) {
 		})
 		ui.Scroll(c).Grow(1).MinHeight(0).Padding(4, 8).Children(func() {
 			cur := a.current()
-			section(c, "在线音乐")
 			if navItem(c, icHome, "推荐", cur.kind == pageHome).Clicked() {
 				a.navigate(page{kind: pageHome})
 			}
-			if navItem(c, icCompass, "歌单广场", cur.kind == pageSquare).Clicked() {
-				a.navigate(page{kind: pageSquare})
+			if navItem(c, icCompass, "音乐馆", cur.kind == pageDiscover || cur.kind == pageToplist).Clicked() {
+				a.navigate(page{kind: pageDiscover})
 			}
-			if navItem(c, icChart, "排行榜", cur.kind == pageToplists || cur.kind == pageToplist).Clicked() {
-				a.navigate(page{kind: pageToplists})
+			if navItem(c, icPodcast, "小宇宙", cur.kind == pagePodcast || cur.kind == pageXyz || cur.kind == pageXyzShow || cur.kind == pageXyzCategory).Clicked() {
+				a.navigate(a.podcastHome())
 			}
 			if navItem(c, icSearch, "搜索", cur.kind == pageSearch).Clicked() {
 				a.navigate(page{kind: pageSearch})
@@ -656,7 +809,17 @@ func formatCount(n int64) string {
 	}
 }
 
+// formatSize formats bytes as Windows does, in MiB called MB.
+func formatSize(n int64) string {
+	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+}
+
+// formatTime formats a time of a song as m:ss, or h:mm:ss in a long
+// episode.
 func formatTime(d time.Duration) string {
 	s := int(d.Seconds())
+	if s >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", s/3600, s/60%60, s%60)
+	}
 	return fmt.Sprintf("%d:%02d", s/60, s%60)
 }

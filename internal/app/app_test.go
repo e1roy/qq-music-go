@@ -20,10 +20,13 @@ type fakePlatform struct{ posts chan func() }
 func (f *fakePlatform) Post(fn func())                          { f.posts <- fn }
 func (f *fakePlatform) WebViewAvailable() bool                  { return true }
 func (f *fakePlatform) OpenQQLogin(done func([]*cookie, error)) { go done(nil, errLoginClosed) }
-func (f *fakePlatform) Minimize()                               {}
-func (f *fakePlatform) ToggleMaximize()                         {}
-func (f *fakePlatform) Maximized() bool                         { return false }
-func (f *fakePlatform) Close()                                  {}
+func (f *fakePlatform) OpenXyzLogin(done func(access, refresh string, err error)) {
+	go done("", "", errLoginClosed)
+}
+func (f *fakePlatform) Minimize()       {}
+func (f *fakePlatform) ToggleMaximize() {}
+func (f *fakePlatform) Maximized() bool { return false }
+func (f *fakePlatform) Close()          {}
 
 func newTestApp(t *testing.T) (*app, *ui.Tester, *fakePlatform) {
 	f := &fakePlatform{posts: make(chan func(), 1024)}
@@ -91,11 +94,14 @@ func TestPages(t *testing.T) {
 	if a.home.err != "" || len(a.home.recs) == 0 {
 		t.Fatalf("home: %q, %d playlists", a.home.err, len(a.home.recs))
 	}
-	if !tt.HasText("为你推荐歌单") {
+	if !tt.HasText("推荐歌单") {
 		t.Errorf("home texts: %q", tt.Texts())
 	}
 	shot(t, tt, "1-home")
 
+	if err := tt.Click("音乐馆"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tt.Click("排行榜"); err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +124,10 @@ func TestPages(t *testing.T) {
 	}
 	shot(t, tt, "3-chart")
 
+	// Back on 音乐馆, the tab is the one left: 排行榜.
+	if err := tt.Click("音乐馆"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tt.Click("歌单广场"); err != nil {
 		t.Fatal(err)
 	}
@@ -278,6 +288,37 @@ func TestModeMenu(t *testing.T) {
 	tt.Frame()
 	if a.set.Mode != modeOne || a.modeOpen {
 		t.Errorf("mode %s, open %v", a.set.Mode, a.modeOpen)
+	}
+}
+
+// TestQualityMenu chooses a quality from the panel above its badge.
+func TestQualityMenu(t *testing.T) {
+	a, tt, _ := newTestApp(t)
+	if a.set.Quality != qqmusic.Best {
+		t.Fatalf("default quality %v", a.set.Quality)
+	}
+	a.queue = []qqmusic.Song{{Mid: "x", Name: "晴天", File: qqmusic.File{Size128: 4317292, Size320: 10792943, SizeFlac: 55397039}}}
+	a.cur = 0
+	tt.Frame()
+	if tt.HasText("HQ 320k") {
+		t.Fatal("the menu shows before a click")
+	}
+	if err := tt.Click("音质"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	for _, want := range []string{"最高音质", "无损 FLAC", "HQ 320k", "标准 128k", "52.8 MB", "10.3 MB", "4.1 MB"} {
+		if !tt.HasText(want) {
+			t.Errorf("no %q in %q", want, tt.Texts())
+		}
+	}
+	shot(t, tt, "11-quality-menu")
+	if err := tt.Click("HQ 320k"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.set.Quality != qqmusic.High || a.qualityOpen {
+		t.Errorf("quality %v after choosing HQ, open %v", a.set.Quality, a.qualityOpen)
 	}
 }
 
@@ -477,6 +518,7 @@ func TestRecent(t *testing.T) {
 	a.addRecent(qqmusic.Song{Mid: "50"})
 	a.set.FavClosed = true
 	a.saveSettings()
+	a.rememberWindow(120, 90, 1100, 780, true)
 
 	b := newApp(f, dir)
 	if len(b.recent) != recentMax {
@@ -494,6 +536,10 @@ func TestRecent(t *testing.T) {
 	}
 	if !b.set.FavClosed || b.set.MineClosed {
 		t.Fatalf("sidebar: %+v", b.set)
+	}
+	if b.set.WinX != 120 || b.set.WinY != 90 || b.set.WinWidth != 1100 ||
+		b.set.WinHeight != 780 || !b.set.WinMax {
+		t.Fatalf("window: %+v", b.set)
 	}
 	if s, ok := b.nowPlaying(); !ok || s.Mid != "50" || b.player.Playing() {
 		t.Fatalf("now playing: %+v %v", s, ok)
@@ -518,6 +564,126 @@ func TestRecent(t *testing.T) {
 	shot(t, tt, "recent")
 }
 
+// TestSearchHistory keeps the searches made last, once each, newest first,
+// across runs, and shows them below the box while it is focused.
+func TestSearchHistory(t *testing.T) {
+	dir := t.TempDir()
+	f := &fakePlatform{posts: make(chan func(), 1024)}
+	a := newApp(f, dir)
+	a.rememberSearch("晴天")
+	a.rememberSearch("周杰伦")
+	a.rememberSearch("晴天")
+	if len(a.set.Searches) != 2 || a.set.Searches[0] != "晴天" {
+		t.Fatalf("history: %q", a.set.Searches)
+	}
+	for i := range searchHistoryMax + 5 {
+		a.rememberSearch(fmt.Sprint("query ", i))
+	}
+	if len(a.set.Searches) != searchHistoryMax {
+		t.Fatalf("got %d searches, want %d", len(a.set.Searches), searchHistoryMax)
+	}
+	newest := fmt.Sprint("query ", searchHistoryMax+4)
+	if a.set.Searches[0] != newest {
+		t.Fatalf("newest first: %q", a.set.Searches[0])
+	}
+
+	b := newApp(f, dir)
+	if len(b.set.Searches) != searchHistoryMax || b.set.Searches[0] != newest {
+		t.Fatalf("history after a run: %q", b.set.Searches)
+	}
+	b.clearSearches()
+	if c := newApp(f, dir); len(c.set.Searches) != 0 {
+		t.Fatalf("cleared history: %q", c.set.Searches)
+	}
+
+	b.rememberSearch("晴天")
+	b.rememberSearch("周杰伦")
+	tt := ui.NewTester(b.view, 1280, 820)
+	if err := tt.Click("搜索歌曲"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !b.search.open {
+		t.Error("focusing the box did not open the history")
+	}
+	for _, want := range []string{"搜索历史", "周杰伦", "晴天"} {
+		if !tt.HasText(want) {
+			t.Errorf("no %q in %q", want, tt.Texts())
+		}
+	}
+	shot(t, tt, "search-history")
+
+	// Typed text shows the search of it and what the service says it may
+	// become, not the searches made before.
+	b.rememberSearch("稻香")
+	b.search.input = "晴"
+	b.search.suggest, b.search.sugFor = []string{"晴空", "晴天 - 周杰伦"}, "晴"
+	tt.Frame()
+	for _, want := range []string{"搜索 “晴”", "晴空", "晴天 - 周杰伦"} {
+		if !tt.HasText(want) {
+			t.Errorf("no %q in %q", want, tt.Texts())
+		}
+	}
+	for _, no := range []string{"搜索历史", "稻香"} {
+		if tt.HasText(no) {
+			t.Errorf("%q while the box is typed in: %q", no, tt.Texts())
+		}
+	}
+	shot(t, tt, "search-typing")
+
+	// The arrows walk what the text may become, and stop at either end.
+	for _, step := range []struct {
+		key  ui.Key
+		want int
+	}{
+		{ui.KeyDown, 0},
+		{ui.KeyDown, 1},
+		{ui.KeyDown, 1},
+		{ui.KeyUp, 0},
+		{ui.KeyUp, 0},
+	} {
+		tt.Key(0, step.key)
+		tt.Frame()
+		if b.search.sel != step.want {
+			t.Fatalf("%v: chose %d, want %d", step.key, b.search.sel, step.want)
+		}
+	}
+	shot(t, tt, "search-typing-sel")
+
+	// Escape closes the menu, and a press in the box opens it again.
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if b.search.open {
+		t.Error("Escape did not close the menu")
+	}
+	if err := tt.Click("搜索歌曲"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !b.search.open {
+		t.Error("a press in the box did not open the menu")
+	}
+
+	// A press on nothing outside takes the focus from the box for good,
+	// though MyGo gives it back as the menu goes.
+	if err := tt.Click("推荐歌单"); err != nil {
+		t.Fatal(err)
+	}
+	for range 4 {
+		tt.Frame()
+	}
+	if b.search.open || b.search.focused {
+		t.Errorf("a press outside left the box focused (%v) or the menu open (%v)", b.search.focused, b.search.open)
+	}
+	if err := tt.Click("搜索歌曲"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !b.search.open || !b.search.focused {
+		t.Error("a press in the box after did not focus it")
+	}
+}
+
 func TestQueueClose(t *testing.T) {
 	a, tt, _ := newTestApp(t)
 	a.showQueue = true
@@ -526,7 +692,7 @@ func TestQueueClose(t *testing.T) {
 		t.Fatal("the queue did not open")
 	}
 	// A press outside closes it, and it slides out before it is gone.
-	if err := tt.Click("为你推荐歌单"); err != nil {
+	if err := tt.Click("推荐歌单"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()

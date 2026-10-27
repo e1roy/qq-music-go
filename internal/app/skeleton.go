@@ -55,8 +55,8 @@ func (a *app) songCardsSkeleton(c *ui.Context, rows int) {
 func forYouSkeleton(c *ui.Context) {
 	ui.Grid(c).Columns(2).Gap(12).Children(func() {
 		for range 2 {
-			ui.Row(c).Padding(14).Gap(16).Radius(radiusXl).Border(1, colLine).AlignItems(ui.Center).MinWidth(0).Children(func() {
-				bone(c).Size(112, 112).Radius(radiusLg)
+			ui.Row(c).Padding(12).Gap(16).Radius(radiusLg).Background(colText.Alpha(0.04)).AlignItems(ui.Center).MinWidth(0).Children(func() {
+				bone(c).Size(96, 96).Radius(radiusSm)
 				ui.Column(c).Grow(1).MinWidth(0).Gap(10).Children(func() {
 					bar(c, 10, 30)
 					bar(c, 18, 50)

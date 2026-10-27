@@ -131,3 +131,55 @@ func (m *tabMotion) row(c *ui.Context, tab singerTab, i int, fn func()) {
 	a.Delay = time.Duration(min(i, 8)) * 30 * time.Millisecond
 	el.AnimatePose(ui.Pose{}, a)
 }
+
+// 换一批 replaces the cards of a section: the new ones come up as they
+// fade in, one after the other, so the swap reads as a refresh.
+var (
+	cardOut    = ui.Pose{Y: 12, Fade: 1}
+	cardSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 380 * time.Millisecond}}
+)
+
+// refreshSpin is how long 换一批 turns its icon for a refresh whose data was
+// already there: one turn, so that it ends where it started.
+const refreshSpin = time.Second
+
+// refreshMotion brings in the cards of a section again once a new batch
+// replaces them, and turns the icon of 换一批 meanwhile.
+type refreshMotion struct {
+	in map[int]bool // cards already posed out for this batch
+	at time.Time    // when they started coming in
+}
+
+// arm makes the cards come in at the next build.
+func (m *refreshMotion) arm() {
+	m.in, m.at = map[int]bool{}, time.Time{}
+}
+
+// busy reports whether the cards are still coming in, so that the icon
+// turns for a refresh that had no request to wait for.
+func (m *refreshMotion) busy(c *ui.Context) bool {
+	if m.in == nil {
+		return false
+	}
+	if m.at.IsZero() {
+		m.at = c.Now()
+	}
+	return c.Now().Sub(m.at) < refreshSpin
+}
+
+// card poses card i of the batch, which comes in unless it was already
+// there when armed.
+func (m *refreshMotion) card(c *ui.Context, i int, card ui.Element) {
+	if m.in == nil {
+		return // never armed: the cards came in with the page
+	}
+	if !m.in[i] {
+		m.in[i] = true
+		card.AnimatePose(cardOut, cardSpring)
+		c.AnimationFrame()
+		return
+	}
+	a := cardSpring
+	a.Delay = time.Duration(min(i, 8)) * 25 * time.Millisecond
+	card.AnimatePose(ui.Pose{}, a)
+}

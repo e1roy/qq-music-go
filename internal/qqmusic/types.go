@@ -48,6 +48,13 @@ type Song struct {
 	Interval int      `json:"interval"` // seconds
 	File     File     `json:"file"`
 	Pay      Pay      `json:"pay"`
+
+	// A song from elsewhere, such as an episode of 小宇宙, plays in the
+	// queue as QQ Music's do: Source names where it is from, URL is its
+	// sound, empty for one to ask its source for, and Pic its cover.
+	Source string `json:"source,omitempty"`
+	URL    string `json:"url,omitempty"`
+	Pic    string `json:"pic,omitempty"`
 }
 
 // Artists joins the names of the song's singers.
@@ -76,8 +83,12 @@ func (s Song) DisplayName() string {
 func (s Song) VIP() bool { return s.Pay.PayPlay == 1 }
 
 // Cover returns the URL of the album's cover at a size of 90, 150, 300,
-// 500 or 800 pixels, or the first singer's photo if it has no album.
+// 500 or 800 pixels, or the first singer's photo if it has no album. A
+// song from elsewhere has the picture it came with.
 func (s Song) Cover(size int) string {
+	if s.Pic != "" {
+		return s.Pic
+	}
 	if s.Album.Mid != "" {
 		return AlbumCover(s.Album.Mid, size)
 	}
@@ -87,8 +98,12 @@ func (s Song) Cover(size int) string {
 	return ""
 }
 
-// Duration formats the length as m:ss.
+// Duration formats the length as m:ss, or h:mm:ss for an episode of an
+// hour or more.
 func (s Song) Duration() string {
+	if s.Interval >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", s.Interval/3600, s.Interval/60%60, s.Interval%60)
+	}
 	return fmt.Sprintf("%d:%02d", s.Interval/60, s.Interval%60)
 }
 
@@ -112,6 +127,15 @@ type Playlist struct {
 	Desc      string
 	PlayCount int64
 	SongCount int
+}
+
+// FeedShelf is a section of the front page made for the user, such as
+// 「e1roy」，这是你的音乐盲盒: songs or playlists, under a title the server
+// words.
+type FeedShelf struct {
+	Title     string
+	Songs     []Song
+	Playlists []Playlist
 }
 
 // Toplist is a chart (排行榜).
@@ -192,6 +216,60 @@ type AlbumInfo struct {
 	Desc    string
 }
 
+// IsPodcast reports whether the album is long audio: a podcast (节目) of
+// 小宇宙 or QQ Music's own, or an audiobook. Its songs are episodes.
+func (a AlbumInfo) IsPodcast() bool { return a.Type == "人声音频" }
+
+// Episode is a song as an album's list gives it, with what only the list
+// has: an episode, for a podcast.
+type Episode struct {
+	Song
+	Index       int    // its number in the album, from 1
+	ListenCount int64  // how many times it was played
+	UploadTime  string // "2022-01-21"
+}
+
+// EpisodeSongs returns the songs of episodes, to play.
+func EpisodeSongs(eps []Episode) []Song {
+	songs := make([]Song, len(eps))
+	for i, e := range eps {
+		songs[i] = e.Song
+	}
+	return songs
+}
+
+// Show is a podcast (节目) as cards show it. Some cards know only its id:
+// its mid comes with the album.
+type Show struct {
+	ID        int64  `json:"id"`
+	Mid       string `json:"mid"`
+	Title     string `json:"title"`
+	Host      string `json:"host"`
+	Cover     string `json:"cover"`
+	Episodes  int    `json:"episodes"` // 0 if not known
+	Intro     string `json:"intro"`
+	PlayCount int64  `json:"play_count"`
+}
+
+// PodcastArea is the page of QQ Music's podcasts (播客专区): shelves of
+// shows, of hosts, or of episodes.
+type PodcastArea struct {
+	Title   string
+	Desc    string
+	Shelves []PodcastShelf
+}
+
+// PodcastShelf is a section of PodcastArea. Each has one kind of card:
+// shows, hosts or episodes.
+type PodcastShelf struct {
+	Title string
+	// Hosts says its shows are people (明星播客), each card their photo and
+	// name, opening their show, of which only the id is known.
+	Hosts    bool
+	Shows    []Show
+	Episodes []Song
+}
+
 // User is the profile of a logged-in user.
 type User struct {
 	Nick   string
@@ -199,28 +277,87 @@ type User struct {
 	VIP    bool
 }
 
-// Quality is a file format of a song.
+// Quality is a file format of a song. A higher one sounds better, so a
+// result below the quality asked for means it fell back.
 type Quality int
 
 const (
+	// AAC is an m4a file, only played when a song has no MP3: it is not
+	// one to choose.
+	AAC Quality = iota - 1
 	// Standard is MP3 at 128 kbps.
-	Standard Quality = iota
+	Standard
 	// High is MP3 at 320 kbps.
 	High
+	// Lossless is FLAC.
+	Lossless
+	// Best is the best file a song has: a choice, not a format.
+	Best
 )
 
-func (q Quality) prefix() (string, string) {
-	if q == High {
-		return "M800", ".mp3"
-	}
-	return "M500", ".mp3"
-}
-
 func (q Quality) String() string {
-	if q == High {
+	switch q {
+	case AAC:
+		return "AAC"
+	case High:
 		return "HQ 320k"
+	case Lossless:
+		return "无损 FLAC"
+	case Best:
+		return "最高音质"
 	}
 	return "标准 128k"
+}
+
+// Best returns the best quality of the files, Standard if none is known.
+func (f File) Best() Quality {
+	switch {
+	case f.SizeFlac > 0:
+		return Lossless
+	case f.Size320 > 0:
+		return High
+	}
+	return Standard
+}
+
+// Size returns the bytes of the file of q, 0 if there is none; for Best,
+// of the best one.
+func (f File) Size(q Quality) int64 {
+	switch q {
+	case Best:
+		return f.Size(f.Best())
+	case Lossless:
+		return int64(f.SizeFlac)
+	case High:
+		return int64(f.Size320)
+	case Standard:
+		return int64(f.Size128)
+	case AAC:
+		return int64(f.SizeAAC)
+	}
+	return 0
+}
+
+// songFile is a file SongURL may ask for.
+type songFile struct {
+	q           Quality
+	prefix, ext string
+}
+
+// files returns the files of s to try for q, the best first.
+func (f File) files(q Quality) []songFile {
+	var fs []songFile
+	if q >= Lossless && f.SizeFlac > 0 {
+		fs = append(fs, songFile{Lossless, "F000", ".flac"})
+	}
+	if q >= High && f.Size320 > 0 {
+		fs = append(fs, songFile{High, "M800", ".mp3"})
+	}
+	fs = append(fs, songFile{Standard, "M500", ".mp3"})
+	if f.SizeAAC > 0 {
+		fs = append(fs, songFile{AAC, "C600", ".m4a"})
+	}
+	return append(fs, songFile{AAC, "C400", ".m4a"})
 }
 
 // Comment is a comment on a song.

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,10 +17,12 @@ func (a *app) content(c *ui.Context) {
 	switch p.kind {
 	case pageHome:
 		a.homePage(c)
-	case pageSquare:
-		a.squarePage(c)
-	case pageToplists:
-		a.chartsPage(c)
+	case pageDiscover:
+		if a.discoverTab == 0 {
+			a.chartsPage(c)
+		} else {
+			a.squarePage(c)
+		}
 	case pageSearch:
 		a.searchPage(c)
 	case pagePlaylist, pageToplist, pageAlbum:
@@ -28,6 +31,14 @@ func (a *app) content(c *ui.Context) {
 		a.singerPage(c, p)
 	case pageRecent:
 		a.recentPage(c, p)
+	case pagePodcast:
+		a.podcastsPage(c)
+	case pageXyz:
+		a.xyzPage(c)
+	case pageXyzShow:
+		a.xyzShowPage(c, p)
+	case pageXyzCategory:
+		a.xyzCategoryPage(c, p)
 	}
 }
 
@@ -93,7 +104,6 @@ func (a *app) homePage(c *ui.Context) {
 		if h.loading && len(h.recs) == 0 {
 			skeleton(c, func() {
 				if a.api.LoggedIn() {
-					headingSkeleton(c)
 					forYouSkeleton(c)
 				}
 				headingSkeleton(c)
@@ -105,27 +115,123 @@ func (a *app) homePage(c *ui.Context) {
 			errorRow(c, h.err, func() { a.loadHome(true) })
 			return
 		}
-		if len(h.guess) > 0 || len(h.daily) > 0 {
-			heading(c, "为你打造")
-			a.forYou(c)
-		}
-		heading(c, "为你推荐歌单")
-		a.playlistGrid(c, h.recs)
-		if len(h.newSongs) > 0 {
-			ui.Row(c).AlignItems(ui.Center).Children(func() {
-				heading(c, "新歌首发")
-				ui.Spacer(c)
-				if button(c, ghost, icPlay, "播放全部").Clicked() {
-					a.playList(h.newSongs, 0)
-				}
+		// The sections are told apart by room alone: little between a
+		// heading and its items, much between sections. The headings'
+		// margins add 6 to each gap.
+		ui.Column(c).Gap(34).Children(func() {
+			if len(h.guess) > 0 || len(h.daily) > 0 {
+				ui.Column(c).Gap(10).Children(func() {
+					heading(c, "今日为你推荐")
+					a.forYou(c)
+				})
+			}
+			if len(h.radar) > 0 {
+				ui.Column(c).Gap(6).Children(func() {
+					ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+						heading(c, "你的精选好歌")
+						playAllButton(c, func() { a.playList(h.radar, 0) })
+						ui.Spacer(c)
+						refreshButton(c, h.radarLoading, false, func() { a.moreRadar() })
+					})
+					a.songCards(c, h.radar[:min(9, len(h.radar))], &h.radarMotion)
+				})
+			}
+			for i := range h.feed {
+				sh := &h.feed[i]
+				ui.Column(c.Key(i)).Gap(6).Children(func() {
+					ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+						heading(c, sh.Title)
+						if len(sh.Songs) > 0 {
+							playAllButton(c, func() { a.playList(sh.Songs, 0) })
+						}
+						ui.Spacer(c)
+						// The feed gives a few dozen songs: 换一批 shows the next
+						// of them, with no request.
+						if len(sh.Songs) > 9 {
+							refreshButton(c, false, h.feedMotion[i].busy(c), func() {
+								sh.Songs = slices.Concat(sh.Songs[9:], sh.Songs[:9])
+								h.feedMotion[i].arm()
+							})
+						}
+					})
+					if len(sh.Songs) > 0 {
+						a.songCards(c, sh.Songs[:min(9, len(sh.Songs))], &h.feedMotion[i])
+					} else {
+						// Tighter than a page of its own: the feed has many
+						// sections, and its covers give way to them.
+						a.playlistGrid(c, sh.Playlists, 160, nil)
+					}
+				})
+			}
+			ui.Column(c).Gap(6).Children(func() {
+				ui.Row(c).AlignItems(ui.Center).Children(func() {
+					title := "推荐歌单"
+					if a.api.LoggedIn() {
+						title = "你的歌单宝藏库"
+					}
+					heading(c, title)
+					ui.Spacer(c)
+					refreshButton(c, h.recLoading, false, func() { a.moreRecs() })
+				})
+				a.playlistGrid(c, h.recs, 190, &h.recMotion)
 			})
-			a.songCards(c, h.newSongs[:min(len(h.newSongs), 12)])
-		}
+			if len(h.newSongs) > 0 {
+				ui.Column(c).Gap(6).Children(func() {
+					ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+						heading(c, "新歌首发")
+						playAllButton(c, func() { a.playList(h.newSongs, 0) })
+						ui.Spacer(c)
+					})
+					a.songCards(c, h.newSongs[:min(len(h.newSongs), 12)], nil)
+				})
+			}
+		})
 	})
 }
 
-// forYou shows the cards made for the user, as QQ Music's 为你打造:
-// 猜你喜欢, a radio that plays on, and 每日30首.
+// playAllButton is the 播放全部 beside a section's heading: play runs after
+// the build, never in it.
+func playAllButton(c *ui.Context, play func()) {
+	sectionAction(c, icPlay, "播放全部", false, play)
+}
+
+// refreshButton is 换一批 of a section of the home page. loading says it
+// fetches, which shows as 加载中…; spin turns its icon while what is already
+// there comes in again. refresh runs after the build, so that the cards it
+// replaces come in from their start pose instead of appearing at once.
+func refreshButton(c *ui.Context, loading, spin bool, refresh func()) {
+	label := "换一批"
+	if loading {
+		label = "加载中…"
+	}
+	sectionAction(c, icRefresh, label, loading || spin, refresh)
+}
+
+// sectionAction is a small action by the heading of a section of the home
+// page: small and dim, for the heading to stand out. onClick runs after the
+// build, which MyGo builds again in the same frame to show its outcome.
+func sectionAction(c *ui.Context, ic *ui.SVG, label string, spin bool, onClick func()) {
+	b := ui.Row(c).Height(24).PaddingX(6).Radius(radiusSm).Gap(5).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	col := colSubtle
+	if b.Hovered() {
+		col = colText
+	}
+	if b.Pressed() {
+		b.Translate(0, 1)
+	}
+	turn := float32(0)
+	if spin {
+		turn = b.Loop("spin", time.Second, ui.Linear) * 360
+	}
+	b.Children(func() {
+		ui.Icon(c, ic).FontSize(12).TextColor(col).Rotate(turn)
+		ui.Text(c, label).FontSize(12).TextColor(col).SingleLine()
+	})
+	b.OnClick(onClick)
+}
+
+// forYou shows the cards made for the user: 猜你喜欢, a radio that plays on,
+// and 每日30首.
 func (a *app) forYou(c *ui.Context) {
 	h := &a.home
 	ui.Grid(c).Columns(2).Gap(12).Children(func() {
@@ -177,18 +283,24 @@ func (a *app) forYou(c *ui.Context) {
 }
 
 // forYouCard is a card of forYou: a cover with a play button, a label, a
-// title and lines of body. The play button shows while hovered or on.
+// title and lines of body. The play button shows while hovered or on. It
+// has no border: a faint wash of its cover's color, fading out to the
+// right, sets it apart from the plain lists below.
 func (a *app) forYouCard(c *ui.Context, key, cover string, ic *ui.SVG, label, title string, on, pause bool, body func()) (card, play ui.Element) {
-	card = ui.Row(c.Key(key)).Padding(14).Gap(16).Radius(radiusXl).Background(colCard).Border(1, colLine).Cursor(ui.CursorPointer).AlignItems(ui.Center).MinWidth(0)
+	card = ui.Row(c.Key(key)).Padding(12).Gap(16).Radius(radiusLg).Cursor(ui.CursorPointer).AlignItems(ui.Center).MinWidth(0)
 	hover := card.Hovered()
+	wash, face := a.pageTint(cover).Alpha(0.4), colText.Alpha(0.04)
 	if hover {
-		card.Background(colCardHover)
+		wash, face = wash.Alpha(0.55), colText.Alpha(0.07)
 	}
+	card.Draw(func(p *ui.Painter, r ui.Rect) {
+		p.FillGradient(r, ui.LinearGradient{From: wash, To: face, Angle: 100, End: 0.6}, radiusLg)
+	})
 	card.Children(func() {
-		ui.Box(c).Size(112, 112).Radius(radiusLg).Clip().Children(func() {
-			a.cover(c, cover, 112, radiusLg)
+		ui.Box(c).Size(96, 96).Radius(radiusSm).Clip().Children(func() {
+			a.cover(c, cover, 96, radiusSm)
 			if hover || on {
-				play = a.playCircle(c, 40, pause).Absolute().Right(8).Bottom(8)
+				play = a.playCircle(c, 36, pause).Absolute().Right(6).Bottom(6)
 			}
 		})
 		ui.Column(c).Grow(1).MinWidth(0).Gap(6).Children(func() {
@@ -218,34 +330,62 @@ func (a *app) homeCover() string {
 	return ""
 }
 
-// songCards shows songs in a grid of small cards, as shadcn's Item.
-func (a *app) songCards(c *ui.Context, songs []qqmusic.Song) {
+// songCards shows songs in a grid, each only its cover and its text, the
+// cover enough to tell one from the next. Hovered, a song gets a faint
+// face, a play mark over its cover, and its heart and menu on the right.
+// m, when set, brings the cards in again after a refresh.
+func (a *app) songCards(c *ui.Context, songs []qqmusic.Song, m *refreshMotion) ui.Element {
 	cols := min(a.columns(c, 300), 4)
-	ui.Grid(c).Columns(cols).Gap(8).Children(func() {
+	grid := ui.Grid(c).Columns(cols).GapX(24).GapY(4)
+	return grid.Children(func() {
 		for i, s := range songs {
-			card := ui.Row(c.Key(s.Mid)).Padding(6).Gap(10).Radius(radiusLg).Background(colCard).Border(1, colLine).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+			card := ui.Row(c.Key(s.Mid)).Padding(6, 8).Gap(12).Radius(radiusSm).AlignItems(ui.Center).MinWidth(0).Cursor(ui.CursorPointer)
 			hover := card.Hovered()
 			if hover {
-				card.Background(colCardHover)
+				card.Background(colGhost)
 			}
 			playing := a.isPlaying(s)
+			var like, more ui.Element
 			card.Children(func() {
-				a.cover(c, s.Cover(150), 44, radiusSm)
+				ui.Box(c).Size(44, 44).Children(func() {
+					a.cover(c, s.Cover(150), 44, radiusSm)
+					if hover || playing {
+						ic := icPlay
+						if playing && a.player.Playing() {
+							ic = icPause
+						}
+						ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(radiusSm).Background(ui.RGBA(0, 0, 0, 0.45)).Center().Children(func() {
+							ui.Icon(c, ic).FontSize(14).TextColor(colText)
+						})
+					}
+				})
 				ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
 					t := ui.Text(c, s.DisplayName()).FontSize(14).FontWeight(500).SingleLine()
 					if playing {
 						t.TextColor(colAccent)
 					}
-					a.singerLinks(c, s.Singers, 12)
+					a.singerLinks(c, s.Singers, 12).TextColor(colSubtle)
 				})
-				if hover || playing {
-					a.playCircle(c, 32, playing && a.player.Playing()).MarginEnd(4)
+				if hover {
+					ic, col, tip := icHeart, colMuted, "喜欢"
+					if a.liked[int64(s.ID)] {
+						ic, col, tip = icHeartOn, colAccent, "取消喜欢"
+					}
+					like = iconButton(c, ic, 14, col, tip)
+					more = iconButton(c, icMore, 14, colMuted, "更多").Menu(a.songMenu(s))
 				}
 			})
-			if card.Clicked() {
+			switch {
+			case like.Valid() && like.Clicked():
+				a.toggleLike(s)
+			case more.Valid() && more.Clicked():
+			case card.Clicked():
 				a.playList(songs, i)
 			}
-			a.songMenu(card, s)
+			card.ContextMenu(a.songMenu(s))
+			if m != nil {
+				m.card(c, i, card)
+			}
 		}
 	})
 }
@@ -268,16 +408,21 @@ func (a *app) playCircle(c *ui.Context, size float32, pause bool) ui.Element {
 	return b
 }
 
-func (a *app) playlistGrid(c *ui.Context, pls []qqmusic.Playlist) {
-	cols := a.columns(c, 190)
+// playlistGrid shows playlists in a grid of cards at least min wide. m, when
+// set, brings the cards in again after a refresh.
+func (a *app) playlistGrid(c *ui.Context, pls []qqmusic.Playlist, min float32, m *refreshMotion) {
+	cols := a.columns(c, min)
 	ui.Grid(c).Columns(cols).Gap(12).Children(func() {
-		for _, p := range pls {
-			a.playlistCard(c, p, page{kind: pagePlaylist, id: p.ID, title: p.Title}, p.Title, p.Creator, p.Cover, p.PlayCount)
+		for i, p := range pls {
+			card := a.playlistCard(c, p, page{kind: pagePlaylist, id: p.ID, title: p.Title}, p.Title, p.Creator, p.Cover, p.PlayCount)
+			if m != nil {
+				m.card(c, i, card)
+			}
 		}
 	})
 }
 
-func (a *app) playlistCard(c *ui.Context, p qqmusic.Playlist, pg page, title, sub, cover string, plays int64) {
+func (a *app) playlistCard(c *ui.Context, p qqmusic.Playlist, pg page, title, sub, cover string, plays int64) ui.Element {
 	card := ui.Column(c.Key(pg.key())).Padding(8).Gap(8).Radius(radiusXl).Cursor(ui.CursorPointer).MinWidth(0)
 	hover := card.Hovered()
 	if hover {
@@ -315,6 +460,7 @@ func (a *app) playlistCard(c *ui.Context, p qqmusic.Playlist, pg page, title, su
 	} else if card.Clicked() {
 		a.navigate(pg)
 	}
+	return card
 }
 
 // playPage loads the songs of a playlist or chart and plays them.
@@ -331,11 +477,15 @@ func (a *app) playPage(pg page) {
 	a.do(func(ctx context.Context) func() {
 		var songs []qqmusic.Song
 		var err error
+		var al qqmusic.AlbumInfo
 		switch pg.kind {
 		case pageToplist:
 			_, songs, err = a.api.ToplistDetail(ctx, int(pg.id), 0, 300)
 		case pageAlbum:
-			_, songs, err = a.api.AlbumDetail(ctx, pg.mid)
+			// A podcast's newest episodes.
+			var eps []qqmusic.Episode
+			al, eps, _, err = a.api.AlbumDetail(ctx, pg.mid, pg.id)
+			songs = qqmusic.EpisodeSongs(eps)
 		default:
 			_, songs, err = a.api.AllPlaylistSongs(ctx, pg.id, pg.dirid)
 		}
@@ -344,8 +494,25 @@ func (a *app) playPage(pg page) {
 				a.toast("加载失败：" + errText(err))
 				return
 			}
+			if al.IsPodcast() {
+				a.podcast.known[al.Mid] = true
+			}
 			a.playList(songs, 0)
 		}
+	})
+}
+
+// discoverTabs switches 音乐馆 between 排行榜 and 歌单广场, where its
+// title would be. Back from a chart, the tab is the one left.
+func (a *app) discoverTabs(c *ui.Context) {
+	ui.Row(c).MarginY(6).Children(func() {
+		tabs(c, a.discoverTab, false, func(i int) {
+			if i != a.discoverTab {
+				a.discoverTab = i
+				a.main.Y = 0
+				a.enter(a.current())
+			}
+		}, "排行榜", "歌单广场")
 	})
 }
 
@@ -356,7 +523,7 @@ func (a *app) squarePage(c *ui.Context) {
 		cover = s.pls[0].Cover
 	}
 	a.pageScroll(c, &a.main, a.pageTint(cover), func() {
-		heading(c, "歌单广场")
+		a.discoverTabs(c)
 		ui.Row(c).Wrap().Gap(8).Children(func() {
 			for _, cat := range qqmusic.PlaylistCategories {
 				if toggle(c.Key(cat.ID), cat.Name, cat.ID == s.cat).Clicked() && cat.ID != s.cat {
@@ -371,7 +538,7 @@ func (a *app) squarePage(c *ui.Context) {
 			return
 		}
 		if len(s.pls) > 0 {
-			a.playlistGrid(c, s.pls)
+			a.playlistGrid(c, s.pls, 190, nil)
 		}
 		switch {
 		case s.loading:
@@ -401,8 +568,8 @@ func (a *app) chartsPage(c *ui.Context) {
 		cover = ch.groups[0].Lists[0].Cover
 	}
 	a.pageScroll(c, &a.main, a.pageTint(cover), func() {
-		heading(c, "排行榜")
-		if ch.loading {
+		a.discoverTabs(c)
+		if ch.loading && len(ch.groups) == 0 {
 			skeleton(c, func() {
 				a.topChartsSkeleton(c)
 				bone(c).Size(120, 18).Radius(radiusSm).Margin(8, 0, 0, 0)
@@ -410,7 +577,7 @@ func (a *app) chartsPage(c *ui.Context) {
 			})
 			return
 		}
-		if ch.err != "" {
+		if ch.err != "" && len(ch.groups) == 0 {
 			errorRow(c, ch.err, func() { a.loadCharts() })
 			return
 		}
@@ -485,6 +652,10 @@ func (a *app) listPage(c *ui.Context, p page) {
 		errorRow(c, l.err, func() { a.loadList(p) })
 		return
 	}
+	if l.album.IsPodcast() {
+		a.showPage(c, p, l)
+		return
+	}
 	a.songTable(c, &l.list, l.songs, func() { a.listHeader(c, p, l) }, nil, true)
 }
 
@@ -527,6 +698,8 @@ func (a *app) listHeader(c *ui.Context, p page, l *songList) {
 					kind = "排行榜"
 				case p.kind == pageSinger:
 					kind = "歌手"
+				case l.album.IsPodcast():
+					kind = "节目"
 				case p.kind == pageAlbum:
 					kind = "专辑"
 					if l.album.Type != "" && l.album.Type != "录音室专辑" {
@@ -558,7 +731,11 @@ func (a *app) listHeader(c *ui.Context, p page, l *songList) {
 				if l.period != "" {
 					meta = append(meta, "更新于 "+l.period)
 				}
-				meta = append(meta, fmt.Sprintf("%d 首歌曲", max(len(l.songs), l.total)))
+				if l.album.IsPodcast() {
+					meta = append(meta, fmt.Sprintf("%d 集", max(len(l.songs), l.total)))
+				} else {
+					meta = append(meta, fmt.Sprintf("%d 首歌曲", max(len(l.songs), l.total)))
+				}
 				if info.PlayCount > 0 {
 					meta = append(meta, formatCount(info.PlayCount)+" 次播放")
 				}
@@ -689,7 +866,7 @@ func (a *app) songRow(c *ui.Context, songs []qqmusic.Song, i int) {
 			})
 		})
 		a.singerLinks(c, s.Singers, 13).Grow(2).Basis(0)
-		a.albumLink(c, s.Album, 13).Grow(2).Basis(0)
+		a.albumLink(c, s, 13).Grow(2).Basis(0)
 		liked := a.liked[int64(s.ID)]
 		ui.Box(c).Width(32).Center().Children(func() {
 			if liked || hover {
@@ -707,7 +884,7 @@ func (a *app) songRow(c *ui.Context, songs []qqmusic.Song, i int) {
 	if row.DoubleClicked() {
 		a.playList(songs, i)
 	}
-	a.songMenu(row, s)
+	row.ContextMenu(a.songMenu(s))
 }
 
 // singerLinks shows the singers of a song, each a link to their page, in
@@ -740,10 +917,10 @@ func (a *app) singerLinks(c *ui.Context, singers []qqmusic.Singer, size float32)
 }
 
 // albumLink shows the album of a song, a link to its page, in text of size.
-func (a *app) albumLink(c *ui.Context, al qqmusic.Album, size float32) ui.Element {
+func (a *app) albumLink(c *ui.Context, s qqmusic.Song, size float32) ui.Element {
 	return ui.Row(c).MinWidth(0).AlignItems(ui.Center).Children(func() {
-		t := ui.Text(c, al.Name).FontSize(size).TextColor(colMuted).SingleLine().MinWidth(0).Shrink(1)
-		if al.Mid == "" {
+		t := ui.Text(c, s.Album.Name).FontSize(size).TextColor(colMuted).SingleLine().MinWidth(0).Shrink(1)
+		if s.Album.Mid == "" {
 			return
 		}
 		t.Cursor(ui.CursorPointer)
@@ -751,7 +928,7 @@ func (a *app) albumLink(c *ui.Context, al qqmusic.Album, size float32) ui.Elemen
 			t.TextColor(colText).Underline()
 		}
 		if t.Clicked() {
-			a.navigate(page{kind: pageAlbum, mid: al.Mid, title: al.Name})
+			a.navigate(albumOf(s))
 		}
 	})
 }
@@ -773,8 +950,10 @@ func (a *app) equalizer(c *ui.Context) {
 	})
 }
 
-func (a *app) songMenu(e ui.Element, s qqmusic.Song) {
-	e.ContextMenu(func(m *ui.Menu) {
+// songMenu builds the menu of a song, for a row's ContextMenu or a menu
+// button's Menu.
+func (a *app) songMenu(s qqmusic.Song) func(m *ui.Menu) {
+	return func(m *ui.Menu) {
 		if m.Item("播放").Chosen() {
 			a.playList([]qqmusic.Song{s}, 0)
 		}
@@ -789,7 +968,7 @@ func (a *app) songMenu(e ui.Element, s qqmusic.Song) {
 		if a.liked[int64(s.ID)] {
 			label = "取消喜欢"
 		}
-		if m.Item(label).Chosen() {
+		if s.Source == "" && m.Item(label).Chosen() {
 			a.toggleLike(s)
 		}
 		for _, sg := range s.Singers {
@@ -797,8 +976,12 @@ func (a *app) songMenu(e ui.Element, s qqmusic.Song) {
 				a.navigate(page{kind: pageSinger, mid: sg.Mid, title: sg.Name})
 			}
 		}
-		if s.Album.Mid != "" && m.Item("查看专辑："+s.Album.Name).Chosen() {
-			a.navigate(page{kind: pageAlbum, mid: s.Album.Mid, title: s.Album.Name})
+		label = "查看专辑："
+		if a.podcast.known[s.Album.Mid] || s.Source == xyzSource {
+			label = "查看节目："
 		}
-	})
+		if s.Album.Mid != "" && m.Item(label+s.Album.Name).Chosen() {
+			a.navigate(albumOf(s))
+		}
+	}
 }

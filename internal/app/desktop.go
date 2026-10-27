@@ -6,11 +6,13 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"qqmusic/internal/qqmusic"
+	"qqmusic/internal/xyz"
 	"qqmusic/resources"
 )
 
@@ -18,8 +20,13 @@ import (
 type desktop struct {
 	win *mygo.Window
 
+	// bounds settles before the window's bounds are kept in the settings;
+	// main thread only.
+	bounds *time.Timer
+
 	mu       sync.Mutex
 	loginWin *mygo.Window
+	xyzWin   *mygo.Window
 }
 
 func (d *desktop) Post(fn func()) { d.win.Update(fn) }
@@ -97,6 +104,73 @@ func (d *desktop) OpenQQLogin(done func([]*cookie, error)) {
 	}()
 }
 
+// OpenXyzLogin shows 小宇宙's login page in a window of its own, which logs
+// in by phone number past a captcha only a browser solves. The page keeps
+// the tokens in cookies of xiaoyuzhoufm.com: once they are there, the
+// window closes with them.
+func (d *desktop) OpenXyzLogin(done func(access, refresh string, err error)) {
+	d.mu.Lock()
+	if d.xyzWin != nil {
+		d.xyzWin.Focus()
+		d.mu.Unlock()
+		return
+	}
+	d.mu.Unlock()
+	go func() {
+		// Start from no session, so the page asks who logs in.
+		if cs, err := mygo.Cookies.List(mygo.CookieFilter{Domain: "xiaoyuzhoufm.com"}); err == nil {
+			for _, c := range cs {
+				mygo.Cookies.Delete(c)
+			}
+		}
+		w := mygo.NewWindow(mygo.WindowOptions{
+			Title: "小宇宙 登录", Width: 460, Height: 720, Parent: d.win, DisableMaximize: true,
+			BackgroundColor: "#ffffff",
+		})
+		d.mu.Lock()
+		d.xyzWin = w
+		d.mu.Unlock()
+		stop := make(chan struct{})
+		var once sync.Once
+		finish := func(access, refresh string, err error) {
+			once.Do(func() {
+				close(stop)
+				d.mu.Lock()
+				d.xyzWin = nil
+				d.mu.Unlock()
+				done(access, refresh, err)
+			})
+		}
+		w.OnClosed(func() { finish("", "", errLoginClosed) })
+		w.Page().LoadURL(xyz.LoginPage)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(time.Second):
+			}
+			cs, err := mygo.Cookies.List(mygo.CookieFilter{Domain: "xiaoyuzhoufm.com"})
+			if err != nil {
+				continue
+			}
+			var access, refresh string
+			for _, c := range cs {
+				switch c.Name {
+				case xyz.TokenCookie:
+					access = c.Value
+				case xyz.RefreshCookie:
+					refresh = c.Value
+				}
+			}
+			if access != "" {
+				finish(access, refresh, nil)
+				w.Close()
+				return
+			}
+		}
+	}()
+}
+
 // newTray shows the app's icon in the notification area: a click brings
 // the window back, a right click opens a menu of the player.
 func (d *desktop) newTray(a *app) {
@@ -136,6 +210,64 @@ func (d *desktop) newTray(a *app) {
 	d.win.OnClosed(tray.Destroy)
 }
 
+// watchBounds keeps the bounds of the window in the settings once it
+// settles: a run that is killed rather than closed, as `mygo dev` does to
+// the build it replaces, keeps the size it was left at.
+func (d *desktop) watchBounds(a *app) {
+	settle := func() {
+		if d.bounds == nil {
+			d.bounds = time.AfterFunc(300*time.Millisecond, func() {
+				mygo.RunOnMain(func() { d.rememberBounds(a) })
+			})
+			return
+		}
+		d.bounds.Reset(300 * time.Millisecond)
+	}
+	d.win.OnResize(settle)
+	d.win.OnMove(settle)
+	d.win.OnMaximize(settle)
+	d.win.OnUnmaximize(settle)
+	d.win.OnRestore(settle)
+	d.win.OnClose(func(*mygo.CloseEvent) {
+		if d.bounds != nil {
+			d.bounds.Stop()
+		}
+		d.rememberBounds(a)
+	})
+}
+
+// rememberBounds writes the window's normal bounds, or that it was
+// maximized, to the settings.
+func (d *desktop) rememberBounds(a *app) {
+	if d.win == nil || d.win.IsMinimized() {
+		return
+	}
+	if d.win.IsMaximized() {
+		// Its bounds are the maximized ones: only its state changes.
+		a.rememberWindow(a.set.WinX, a.set.WinY, a.set.WinWidth, a.set.WinHeight, true)
+		return
+	}
+	b := d.win.Bounds()
+	if b.Width <= 0 || b.Height <= 0 {
+		return
+	}
+	a.rememberWindow(b.X, b.Y, b.Width, b.Height, false)
+}
+
+// onDisplay reports whether enough of r is on a display to reach it, as a
+// window left on a display that is gone is not.
+func onDisplay(r mygo.Rectangle) bool {
+	for _, d := range mygo.Screen.Displays() {
+		a := d.WorkArea
+		w := min(a.X+a.Width, r.X+r.Width) - max(a.X, r.X)
+		h := min(a.Y+a.Height, r.Y+r.Height) - max(a.Y, r.Y)
+		if w >= min(100, r.Width) && h >= min(50, r.Height) {
+			return true
+		}
+	}
+	return false
+}
+
 // Run opens the main window and runs the app until it quits. It must be
 // called on the main goroutine.
 func Run() error {
@@ -149,21 +281,37 @@ func Run() error {
 	// dark too, or their glyphs are dark on black.
 	mygo.Theme.SetSource(mygo.ThemeDark)
 	mygo.App.WhenReady(func() {
-		d.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:     "QQ音乐",
-			Width:     1280,
-			Height:    820,
-			MinWidth:  960,
-			MinHeight: 600,
-			StateKey:  "main",
-			// The view draws the window controls, in the page's corner.
+		// The bounds live in the settings rather than in WindowOptions.StateKey:
+		// MyGo saves a keyed window only when it closes, and `mygo dev` kills
+		// the build it replaces instead of closing it.
+		opts := mygo.WindowOptions{
+			Title:             "QQ音乐",
+			Width:             1280,
+			Height:            820,
+			MinWidth:          960,
+			MinHeight:         600,
+			Maximized:         a.set.WinMax,
 			TitleBarStyle:     mygo.TitleBarHidden,
 			HideWindowButtons: true,
 			Content:           ui.View(a.view),
-		})
+			// Shown once d.win is set: showing builds the first frame at
+			// once, which asks the window whether it is maximized.
+			Hidden: true,
+		}
+		if a.set.WinWidth > 0 && a.set.WinHeight > 0 {
+			opts.Width, opts.Height = a.set.WinWidth, a.set.WinHeight
+			// A place on a display that is gone would show the window out of
+			// reach; without X and Y it opens on the center of one.
+			if onDisplay(mygo.Rectangle{X: a.set.WinX, Y: a.set.WinY, Width: opts.Width, Height: opts.Height}) {
+				opts.X, opts.Y = a.set.WinX, a.set.WinY
+			}
+		}
+		d.win = mygo.NewWindow(opts)
 		if err := d.win.SetIcon(resources.WindowIcon); err != nil {
 			log.Println("icon:", err)
 		}
+		d.win.Show()
+		d.watchBounds(a)
 		d.win.OnClosed(a.saveSettings)
 		d.newTray(a)
 		// Background work starts only now: Post goes through d.win.
@@ -172,6 +320,7 @@ func Run() error {
 		}
 		a.enter(a.current())
 		a.startSession()
+		a.startXyz()
 	})
 	return mygo.App.Run()
 }

@@ -92,9 +92,9 @@ func main() {
 	check("ToplistDetail", err)
 	fmt.Printf("ToplistDetail: %q %d songs, first %q\n", tl.Title, len(tsongs), tsongs[0].Name)
 
-	rec, err := c.RecommendPlaylists(ctx)
+	rec, more, err := c.RecommendPlaylists(ctx, 0, 20)
 	check("RecommendPlaylists", err)
-	fmt.Printf("RecommendPlaylists: %d, first %q id %d\n", len(rec), rec[0].Title, rec[0].ID)
+	fmt.Printf("RecommendPlaylists: %d more=%v, first %q id %d\n", len(rec), more, rec[0].Title, rec[0].ID)
 
 	cat, ctotal, err := c.PlaylistsByCategory(ctx, 6, 1, 10)
 	check("PlaylistsByCategory", err)
@@ -124,6 +124,35 @@ func main() {
 			cms[0].Content, cms[0].Nick, cms[0].Likes, cms[0].Time.Format(time.DateTime))
 	}
 
+	area, err := c.PodcastArea(ctx)
+	check("PodcastArea", err)
+	fmt.Printf("PodcastArea: %q %q, %d shelves\n", area.Title, area.Desc, len(area.Shelves))
+	for _, sh := range area.Shelves {
+		fmt.Printf("  %q hosts=%v shows=%d episodes=%d\n", sh.Title, sh.Hosts, len(sh.Shows), len(sh.Episodes))
+	}
+	picks, err := c.PodcastPicks(ctx)
+	check("PodcastPicks", err)
+	if len(picks) == 0 {
+		log.Fatal("PodcastPicks: none")
+	}
+	fmt.Printf("PodcastPicks: %d, first %q by %q id=%d\n", len(picks), picks[0].Title, picks[0].Host, picks[0].ID)
+	// A pick knows only its id: the show and its newest episodes by it.
+	show, eps, etotal, err := c.AlbumDetail(ctx, "", picks[0].ID)
+	check("AlbumDetail podcast", err)
+	fmt.Printf("AlbumDetail podcast: %q mid=%s podcast=%v, %d of %d episodes\n", show.Name, show.Mid, show.IsPodcast(), len(eps), etotal)
+	if len(eps) > 0 {
+		fmt.Printf("  newest: #%d %q %s plays=%d %s\n", eps[0].Index, eps[0].Name, eps[0].UploadTime, eps[0].ListenCount, eps[0].Duration())
+	}
+	shows, more, err := c.SearchPodcasts(ctx, "日谈公园", 1, 20)
+	check("SearchPodcasts", err)
+	fmt.Printf("SearchPodcasts: %d more=%v\n", len(shows), more)
+	for _, s := range shows[:min(3, len(shows))] {
+		fmt.Printf("  %q by %q, %d episodes\n", s.Title, s.Host, s.Episodes)
+	}
+	found, more, err := c.SearchEpisodes(ctx, "日谈公园", 1, 30)
+	check("SearchEpisodes", err)
+	fmt.Printf("SearchEpisodes: %d more=%v\n", len(found), more)
+
 	if !c.LoggedIn() {
 		_, _, err := c.SongURL(ctx, songs[0], qqmusic.Standard)
 		fmt.Println("SongURL without login:", err)
@@ -151,13 +180,22 @@ func main() {
 	guess, err := c.GuessYouLike(ctx)
 	fmt.Println("GuessYouLike:", len(guess), err)
 
+	radar, more, err := c.RadarSongs(ctx, 1)
+	fmt.Println("RadarSongs:", len(radar), more, err)
+
 	daily, dsongs, err := c.DailySongs(ctx)
 	fmt.Printf("DailySongs: %q id %d, %d songs, %v\n", daily.Title, daily.ID, len(dsongs), err)
+
+	shelves, err := c.RecommendFeed(ctx)
+	fmt.Println("RecommendFeed:", len(shelves), err)
+	for _, sh := range shelves {
+		fmt.Printf("  %q songs=%d playlists=%d\n", sh.Title, len(sh.Songs), len(sh.Playlists))
+	}
 
 	// Playback URLs of free and VIP songs.
 	free, _, _, _ := c.Search(ctx, "小星星 儿歌", 1, 10)
 	for _, s := range append(free[:3], songs[:3]...) {
-		for _, q := range []qqmusic.Quality{qqmusic.Standard, qqmusic.High} {
+		for _, q := range []qqmusic.Quality{qqmusic.Standard, qqmusic.High, qqmusic.Lossless} {
 			url, got, err := c.SongURL(ctx, s, q)
 			if err != nil {
 				fmt.Printf("SongURL %q vip=%v %v: %v\n", s.Name, s.VIP(), q, err)

@@ -47,13 +47,15 @@ func (a *app) playerBar(c *ui.Context) {
 				ui.Text(c, s.DisplayName()).FontSize(14).FontWeight(500).SingleLine().Cursor(ui.CursorPointer).OnClick(a.toggleLyrics)
 				a.singerLinks(c, s.Singers, 12)
 			})
-			liked := a.liked[int64(s.ID)]
-			ic, col := icHeart, colMuted
-			if liked {
-				ic, col = icHeartOn, colAccent
-			}
-			if iconButton(c, ic, 16, col, "喜欢").Clicked() {
-				a.toggleLike(s)
+			// An episode of 小宇宙 is not QQ Music's to like.
+			if s.Source == "" {
+				ic, col := icHeart, colMuted
+				if a.liked[int64(s.ID)] {
+					ic, col = icHeartOn, colAccent
+				}
+				if iconButton(c, ic, 16, col, "喜欢").Clicked() {
+					a.toggleLike(s)
+				}
 			}
 		})
 		// The controls.
@@ -117,20 +119,90 @@ func (a *app) playerBar(c *ui.Context) {
 			q := a.set.Quality.String()
 			// As the next song loads, it shows what the last one got, not
 			// the quality asked for, for it not to change back and forth.
-			if a.qualityKnown && a.gotQuality < a.askedQuality {
-				q = a.gotQuality.String() + "（无高品质）"
+			if a.qualityKnown {
+				switch {
+				case a.gotQuality == qqmusic.AAC:
+					q = a.gotQuality.String() + "（无 MP3 音源）"
+				case a.askedQuality == qqmusic.Best || a.gotQuality >= a.askedQuality:
+					q = a.gotQuality.String()
+				case a.askedQuality == qqmusic.Lossless:
+					q = a.gotQuality.String() + "（无损不可用）"
+				default:
+					q = a.gotQuality.String() + "（无高品质）"
+				}
 			}
-			qb := badge(c, q, colAccent).Cursor(ui.CursorPointer).Tooltip("音质").MarginEnd(6)
-			if qb.Hovered() {
+			// An episode of 小宇宙 has the one file it has.
+			if ok && s.Source == xyzSource {
+				q = "小宇宙"
+			}
+			tip := "音质"
+			if n := a.player.Size(); n > 0 {
+				tip = "音质 · 当前文件 " + formatSize(n)
+			}
+			if a.qualityOpen {
+				tip = ""
+			}
+			qb := badge(c, q, colAccent).Cursor(ui.CursorPointer).MarginEnd(6).Label("音质")
+			if tip != "" {
+				qb.Tooltip(tip)
+			}
+			if qb.Hovered() || a.qualityOpen {
 				qb.Background(colAccent.Alpha(0.12))
 			}
-			qb.Menu(func(m *ui.Menu) {
-				for _, qq := range []qqmusic.Quality{qqmusic.Standard, qqmusic.High} {
-					if m.Item(qq.String()).Checked(a.set.Quality == qq).Chosen() {
-						a.set.Quality = qq
-						a.saveSettings()
-						if _, ok := a.nowPlaying(); ok {
-							a.toast("下一首起使用 " + qq.String())
+			if qb.Clicked() {
+				a.qualityOpen = !a.qualityOpen
+			}
+			// The qualities, pulled up from the badge, the one in use
+			// checked, each with the size of the song's file.
+			file, hasSong := qqmusic.File{}, false
+			if s, ok := a.nowPlaying(); ok {
+				file, hasSong = s.File, true
+			}
+			ui.PopoverBase(c, qb, &a.qualityOpen, func(panel ui.Element) {
+				panel.AttachTo(qb, ui.AnchorTop, ui.AnchorBottom).Margin(0, 0, 8, 0).
+					Padding(4).Gap(1).Width(236).Radius(radiusLg).Background(colCard).Border(1, colLine).
+					Shadow(0, 8, 24, 0, colShadow)
+				for i, qq := range []qqmusic.Quality{qqmusic.Best, qqmusic.Lossless, qqmusic.High, qqmusic.Standard} {
+					if i == 1 {
+						ui.Box(c).Height(1).Margin(3, 2).Background(colLine)
+					}
+					on := a.set.Quality == qq
+					row := ui.Row(c.Key(int(qq))).Padding(6, 8).Gap(8).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+					if row.Hovered() {
+						row.Background(colHover)
+					}
+					fg := colText
+					if on {
+						fg = colAccent
+					}
+					size := "无"
+					switch n := file.Size(qq); {
+					case !hasSong:
+						size = ""
+					case n == 0:
+					case qq == qqmusic.Best:
+						size = file.Best().String() + " · " + formatSize(n)
+					default:
+						size = formatSize(n)
+					}
+					row.Children(func() {
+						// The check keeps its column, so the names line up.
+						ui.Box(c).Size(14, 14).Center().Children(func() {
+							if on {
+								ui.Icon(c, icCheck).FontSize(14).TextColor(colAccent)
+							}
+						})
+						ui.Text(c, qq.String()).FontSize(13).TextColor(fg)
+						ui.Text(c, size).FontSize(12).TextColor(colMuted).TextAlign(ui.End).Grow(1).FontFeatures("tnum")
+					})
+					if row.Clicked() {
+						a.qualityOpen = false
+						if !on {
+							a.set.Quality = qq
+							a.saveSettings()
+							if hasSong {
+								a.toast("下一首起使用 " + qq.String())
+							}
 						}
 					}
 				}
@@ -321,8 +393,12 @@ func (a *app) nowPlayingPage(c *ui.Context) {
 					a.singerLinks(c, s.Singers, 15)
 					if s.Album.Name != "" {
 						ui.Row(c).MinWidth(0).AlignItems(ui.Center).Children(func() {
-							ui.Text(c, "专辑：").FontSize(13).TextColor(colMuted).NoWrap()
-							a.albumLink(c, s.Album, 13).Shrink(1)
+							label := "专辑："
+							if s.Source == xyzSource {
+								label = "节目："
+							}
+							ui.Text(c, label).FontSize(13).TextColor(colMuted).NoWrap()
+							a.albumLink(c, s, 13).Shrink(1)
 						})
 					}
 					ui.Row(c).Margin(4, 0, 0, 0).Children(func() { a.commentsTab(c, s) })

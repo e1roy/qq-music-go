@@ -1,6 +1,9 @@
 package qqmusic
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 // TestParseDirect reads zhida as the search sends it.
 func TestParseDirect(t *testing.T) {
@@ -42,6 +45,61 @@ func TestCleanComment(t *testing.T) {
 	} {
 		if got := cleanComment(in); got != want {
 			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestPodcastArea reads the shelves of 播客专区 as getAreaHomePage sends
+// them: shows, hosts and episodes, the others left out.
+func TestPodcastArea(t *testing.T) {
+	const raw = `{"title":"播客专区","share":{"desc":"听见闪闪发光的灵魂"},"v_shelf":[
+		{"title_template":"","v_niche":[{"v_card":[{"type":2000,"id":"card_index_4579_0","miscellany":{"schemaType":"7","schemaNewParams":"331892789"}}]}]},
+		{"title_template":"近期热点","v_niche":[{"v_card":[{"type":200,"id":"335642933","title":"073"},{"type":200,"id":"336316446"}]}]},
+		{"title_template":"明星播客","v_niche":[{"v_card":[
+			{"type":2100,"id":"card_index_5494_0","title":"王晰","cover":"x.jpg","miscellany":{"schemaType":"2","schemaNewParams":"17291185"}},
+			{"type":2100,"id":"card_index_5494_1","title":"空","miscellany":{"schemaType":"2","schemaNewParams":""}}]}]},
+		{"title_template":"热门节目","v_niche":[{"v_card":[
+			{"type":400,"id":"20102232","subid":"001N8TFz49WZol","title":"无乐不谈","subtitle":"王东/谭维维","miscellany":{"num":"38"}},
+			{"type":400,"id":"20102232","subid":"001N8TFz49WZol","title":"无乐不谈"}]},
+			{"v_card":[{"type":400,"id":20102233,"subid":"","title":"&amp;仅有 id"}]}]},
+		{"title_template":"话题","v_niche":[{"v_card":[{"type":2500,"id":20}]}]}]}`
+	var r rawArea
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		t.Fatal(err)
+	}
+	a, ids := r.area()
+	if a.Title != "播客专区" || a.Desc != "听见闪闪发光的灵魂" || len(a.Shelves) != 3 {
+		t.Fatalf("area: %+v", a)
+	}
+	if got := ids[0]; len(got) != 2 || got[0] != 335642933 || a.Shelves[0].Title != "近期热点" {
+		t.Errorf("episodes: %v %+v", ids, a.Shelves[0])
+	}
+	if h := a.Shelves[1]; !h.Hosts || len(h.Shows) != 1 || h.Shows[0].ID != 17291185 || h.Shows[0].Title != "王晰" {
+		t.Errorf("hosts: %+v", h)
+	}
+	s := a.Shelves[2]
+	if s.Hosts || len(s.Shows) != 2 || s.Shows[0].Mid != "001N8TFz49WZol" || s.Shows[0].Episodes != 38 ||
+		s.Shows[0].Host != "王东/谭维维" || s.Shows[1].ID != 20102233 || s.Shows[1].Title != "&仅有 id" {
+		t.Errorf("shows: %+v", s)
+	}
+}
+
+// TestDirectPodcasts reads the podcasts a search goes straight to, beside a
+// singer, as the search of 来都来了 sends them.
+func TestDirectPodcasts(t *testing.T) {
+	const zhida = `{"list":[
+		{"type":1,"title":"歌手: 黄诗扶","custom_info":{"mid":"0000Z1MN2gkvI6","song_num":"313","album_num":"78"}},
+		{"type":2,"title":"播客: 来都来了 | 听了再走","desciption":"来都来了_  283集","pic":"http://y.gtimg.cn/x.jpg",
+			"custom_info":{"area":"1","channel_type":"10025","mid":"003DKRD82GxqiR","track_num":"283","play_count":"89万"}},
+		{"type":2,"title":"专辑: 范特西","custom_info":{"mid":"000I5jJB3blWeN","track_num":"10"}}]}`
+	shows := directPodcasts([]byte(zhida))
+	if len(shows) != 1 || shows[0].Mid != "003DKRD82GxqiR" || shows[0].Title != "来都来了 | 听了再走" ||
+		shows[0].Episodes != 283 || shows[0].Cover != AlbumCover("003DKRD82GxqiR", 300) {
+		t.Fatalf("shows: %+v", shows)
+	}
+	for _, s := range []string{``, `{"list":[]}`, `{"list":3}`} {
+		if shows := directPodcasts([]byte(s)); shows != nil {
+			t.Errorf("%s: %+v", s, shows)
 		}
 	}
 }

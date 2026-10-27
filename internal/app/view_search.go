@@ -9,7 +9,7 @@ import (
 )
 
 // searchPage shows what people search for now, or what the query found:
-// its songs, singers or playlists, a tab each.
+// its songs, singers, playlists or podcasts, a tab each.
 func (a *app) searchPage(c *ui.Context) {
 	s := &a.search
 	if s.query == "" {
@@ -23,6 +23,7 @@ func (a *app) searchPage(c *ui.Context) {
 				for i, k := range s.hot {
 					if toggle(c.Key(i), k, false).Clicked() {
 						s.input = k
+						a.rememberSearch(k)
 						a.runSearch(k, 1)
 					}
 				}
@@ -35,6 +36,8 @@ func (a *app) searchPage(c *ui.Context) {
 		a.foundSingers(c)
 	case foundPlaylists:
 		a.foundPlaylists(c)
+	case foundPodcasts:
+		a.foundPodcasts(c)
 	default:
 		a.foundSongs(c)
 	}
@@ -57,7 +60,7 @@ func (a *app) searchHeader(c *ui.Context) {
 			a.directCard(c, s.direct)
 		}
 		ui.Row(c).MarginY(10).Gap(12).AlignItems(ui.Center).Children(func() {
-			tabs(c, int(s.tab), false, func(i int) { a.showSearchTab(searchTab(i)) }, "单曲", "歌手", "歌单")
+			tabs(c, int(s.tab), false, func(i int) { a.showSearchTab(searchTab(i)) }, "单曲", "歌手", "歌单", "播客")
 			sum := ""
 			switch {
 			case s.tab == foundSongs && s.total > 0:
@@ -66,6 +69,10 @@ func (a *app) searchHeader(c *ui.Context) {
 				sum = fmt.Sprintf("共找到 %d 位歌手", s.singers.total)
 			case s.tab == foundPlaylists && s.pls.total > 0:
 				sum = fmt.Sprintf("共找到 %d 个歌单", s.pls.total)
+			// Of what the search finds, the podcasts are only some: how
+			// many in all is not known.
+			case s.tab == foundPodcasts && len(s.podcasts.items) > 0:
+				sum = fmt.Sprintf("找到 %d 个播客", len(s.podcasts.items))
 			}
 			if sum != "" {
 				ui.Text(c, sum).FontSize(13).TextColor(colMuted)
@@ -178,7 +185,7 @@ func (a *app) foundSingers(c *ui.Context) {
 	a.tint.aim(c, a.pageTint(a.searchCover(cover)))
 	cols := a.columns(c, 160)
 	card := func(sg qqmusic.FoundSinger) { a.singerCard(c, sg) }
-	foundGrid(a, c, f, cols, card, func() {
+	foundGrid(a, c, &f.list, f.items, cols, card, func() {
 		foundEnd(c, f, "歌手", a.searchSingers, func(rows int) { singerSkeleton(c, cols, rows) })
 	})
 }
@@ -195,23 +202,40 @@ func (a *app) foundPlaylists(c *ui.Context) {
 	card := func(p qqmusic.Playlist) {
 		a.playlistCard(c, p, page{kind: pagePlaylist, id: p.ID, title: p.Title}, p.Title, p.Creator, p.Cover, p.PlayCount)
 	}
-	foundGrid(a, c, f, cols, card, func() {
+	foundGrid(a, c, &f.list, f.items, cols, card, func() {
 		foundEnd(c, f, "歌单", a.searchPlaylists, func(rows int) { playlistSkeleton(c, cols, rows) })
 	})
 }
 
+// foundPodcasts is the tab of the podcasts found, searched beside the
+// songs: those the search goes straight to, then the albums found that are
+// podcasts.
+func (a *app) foundPodcasts(c *ui.Context) {
+	f := &a.search.podcasts
+	cover := ""
+	if len(f.items) > 0 {
+		cover = f.items[0].Cover
+	}
+	a.tint.aim(c, a.pageTint(a.searchCover(cover)))
+	cols := a.columns(c, 170)
+	card := func(sh qqmusic.Show) { a.showCard(c, sh) }
+	foundGrid(a, c, &f.list, f.items, cols, card, func() {
+		podcastEnd(c, f, "播客", a.morePodcastsFound, func(rows int) { playlistSkeleton(c, cols, rows) })
+	})
+}
+
 // foundGrid shows what a tab found as rows of cards, cols in a row, below
-// the header, in one virtual list, and then end.
-func foundGrid[T any](a *app, c *ui.Context, f *found[T], cols int, card func(T), end func()) {
-	rows := (len(f.items) + cols - 1) / cols
-	ui.List(c, &f.list, 1+rows+1, func(i int) {
+// the header, in one virtual list scrolled by ls, and then end.
+func foundGrid[T any](a *app, c *ui.Context, ls *ui.ListState, items []T, cols int, card func(T), end func()) {
+	rows := (len(items) + cols - 1) / cols
+	ui.List(c, ls, 1+rows+1, func(i int) {
 		switch {
 		case i == 0:
 			a.searchHeader(c)
 		case i <= rows:
 			r := i - 1
 			ui.Grid(c).Columns(cols).Gap(12).Padding(0, 24, 12, 24).Children(func() {
-				for _, it := range f.items[r*cols : min(len(f.items), (r+1)*cols)] {
+				for _, it := range items[r*cols : min(len(items), (r+1)*cols)] {
 					card(it)
 				}
 			})

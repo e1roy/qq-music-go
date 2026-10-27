@@ -31,14 +31,7 @@ func newMP3Decoder(b *buffer, duration time.Duration) (*mp3Decoder, error) {
 	if _, err := b.ReadAt(head, 0); err != nil {
 		return nil, err
 	}
-	var start int64
-	if string(head[:3]) == "ID3" {
-		size := int64(head[6]&0x7f)<<21 | int64(head[7]&0x7f)<<14 | int64(head[8]&0x7f)<<7 | int64(head[9]&0x7f)
-		start = 10 + size
-		if head[5]&0x10 != 0 {
-			start += 10
-		}
-	}
+	start := id3End(head)
 	m := &mp3Decoder{b: b, audioStart: start}
 	off, bitrate, err := m.sync(start)
 	if err != nil {
@@ -60,6 +53,19 @@ func newMP3Decoder(b *buffer, duration time.Duration) (*mp3Decoder, error) {
 		m.bytesPerSec = float64(bitrate) / 8
 	}
 	return m, nil
+}
+
+// id3End returns where the ID3v2 tag that head, a file's first 10
+// bytes, starts ends: 0 if there is none.
+func id3End(head []byte) int64 {
+	if len(head) < 10 || string(head[:3]) != "ID3" {
+		return 0
+	}
+	end := 10 + (int64(head[6]&0x7f)<<21 | int64(head[7]&0x7f)<<14 | int64(head[8]&0x7f)<<7 | int64(head[9]&0x7f))
+	if head[5]&0x10 != 0 {
+		end += 10 // a footer
+	}
+	return end
 }
 
 func (m *mp3Decoder) openAt(off int64) error {

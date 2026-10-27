@@ -1,8 +1,8 @@
 # AGENTS.md
 
-面向在本仓库工作的 AI 代理与开发者：项目地图（codemap）、硬性约束、开发约定、常用命令与已知坑。改动代码前先读本文件；新增/删除文件后同步更新第 4 节。
+面向在本仓库工作的 AI 代理与开发者：项目地图（codemap）、硬性约束、开发约定、常用命令与已知坑。改动代码前先读本文件；新增/删除文件后同步更新 `CODEMAP.md`。
 
-快速入口：动手前看 §2 硬性约束；找文件/符号看 §4.6 快速定位；理解数据流看 §5；排查问题看 §8 已知坑；提交前过一遍 §10 检查清单。
+快速入口：动手前看 §2 硬性约束；找文件/符号看 `CODEMAP.md` 的「按任务快速定位」；理解数据流看 §5；排查问题看 §8 已知坑；提交前过一遍 §10 检查清单。
 
 ## 1. 项目是什么
 
@@ -17,15 +17,20 @@
 改代码时必须遵守：
 
 1. **纯 Go / 无 cgo**：`CGO_ENABLED=0`。不要引入需要 cgo 或本地动态库的依赖。
-2. **主界面只用 MyGo**：不要引入前端工程、Electron、Wails 或 HTML 界面。唯一例外是「QQ 账号」登录：通过 MyGo 的 WebView2 窗口打开 QQ 官方登录页（`desktop.OpenQQLogin`），不要把它扩展成应用主界面。
+2. **主界面只用 MyGo**：不要引入前端工程、Electron、Wails 或 HTML 界面。例外只有两个登录窗口：「QQ 账号」登录（`desktop.OpenQQLogin`，QQ 官方登录页）和小宇宙「手机号登录」（`desktop.OpenXyzLogin`，`accounts.xiaoyuzhoufm.com` 官方登录页，因为短信验证码要过阿里云滑块验证）。只用于登录，不要把它们扩展成应用主界面。
 3. **主线程模型**：`app` 的状态只在 UI 线程读写；网络/解码等耗时操作走 `a.do`，结果通过 `platform.Post` 回到主线程。
 4. **只在事件回调里做副作用**：`a.view(c)` 可能一帧重建多次，禁止在构建视图时发请求、写文件或改播放队列。
-5. **播放只支持 MP3**：标准 128k（`M500`）与 HQ 320k（`M800`）。只有 AAC（m4a）音源的歌曲会提示无法播放并自动跳过。
+5. **播放格式**：MP3 标准 128k（`M500`）/ HQ 320k（`M800`）、无损 FLAC（`F000`，纯 Go `mewkiz/flac`）、AAC m4a（`C600`/`C400`，仅在没有 MP3 时兜底；小宇宙单集大多是 m4a。经 syscall 调 Windows Media Foundation 解码，不用 cgo；文件通过 Go 实现的 `IStream` 边下边读）。格式按文件头识别，不按请求的音质。
 6. **播放地址必须登录**：`SongURL` 未登录返回 `ErrNotLoggedIn`；VIP 歌曲还要求账号本身是会员。
 7. **接口字段要容错**：数值可能是数字或字符串（用 `flexInt`），简介含 HTML（用 `cleanIntro`），封面可能为空（要回退）。
 8. **不要提交隐私与生成物**：`cred.json`、`build/`、`.mygo/`、`mygo_windows_*.syso` 已在 `.gitignore` 中。`build/windows-amd64/resources.go` 是 `mygo build` 生成的，不要手改。
 9. **UI 身份**：不要把 `ui.Element` 存进 `app` 状态；元素每次构建都会失效。持久控件用 `.Bind(&handle)`，列表行用稳定的 `c.Key(...)`。
 10. **MyGo 版本**：钉在 `v0.6.4`。动 UI 代码前先查本地源码：`go list -m -f '{{.Dir}}' github.com/egoist/mygo`，读 `ui/doc.go` 与相关实现注释。本仓库另有 `.agents/skills/mygo-maintenance/SKILL.md`，其生命周期/身份/线程/测试规则优先。
+11. **测试不能大量请求线上接口**：尤其是需要登录的接口（`SongURL` 的 `music.vkey.GetVkey`、用户歌单等），它们用的是真实账号。批量请求会触发限流（返回 `code 104009`），之后连正常歌曲都拿不到播放地址，客户端也跟着播不了，恢复时间未知。规则：
+    - 一次验证只取几首（≤ 10）代表性歌曲，串行请求，不要并发，不要遍历排行榜、歌单或「我喜欢」逐首取播放地址。
+    - 想统计音源格式（有没有 FLAC / 只有 AAC 等），只看歌曲信息里的 `File.Size*` 字段，不要逐首调 `SongURL`。
+    - 解码/播放测试先把文件下载到本地一次，之后用本地文件反复测（`PLAYER_TEST_URL` 支持本地路径），不要每次重新取地址。
+    - 一旦出现 104009，立刻停止请求，告诉用户，不要重试。
 
 ## 3. 常用命令
 
@@ -42,13 +47,13 @@
 | 把 `icon.ico` 写进 exe 资源 | `go run ./cmd/genicon -syso` |
 | 本地 GUI 构建 | `go build -ldflags "-H=windowsgui" -o build/QQMusic.exe ./cmd/qqmusic` |
 | 正式打包（exe + NSIS 安装包） | `go tool mygo build` |
-| 运行版一键脚本 | `.\启动run.bat`（会先 `genicon -syso`，再编译启动） |
+| 开发模式一键脚本 | `.\启动run.bat`（即 `go tool mygo dev`：改代码保存后自动重编译重启，产物在 `.mygo/dev/`） |
 | 打包脚本 | `.\打包build.bat [x.y.z]`（传版本号会先写入 `mygo.json`；不传则用现有版本） |
 | 接口冒烟测试（公开接口） | `go run ./cmd/probe` |
 | 扫码登录后测用户接口/播放地址 | `go run ./cmd/probe -login qq -cred cred.json` |
 | 内存诊断页 | `$env:QQMUSIC_PPROF="127.0.0.1:6060"; go run ./cmd/qqmusic`，然后打开 `http://127.0.0.1:6060/mem` |
 | UI 截图（测试用） | `$env:SHOTS="C:\shots"; go test ./internal/app -run TestPages -v` |
-| 解码器联网测试 | `$env:PLAYER_TEST_URL="<mp3 url>"; go test ./internal/player -run TestStreamDecoder -v` |
+| 解码器联网测试 | `$env:PLAYER_TEST_URL="<mp3/flac/m4a 的 url 或本地路径>"; go test ./internal/player -run TestStreamDecoder -v` |
 
 打包产物：
 
@@ -58,106 +63,9 @@
 
 ## 4. Code Map
 
-### 4.1 目录总览
+项目地图（目录总览、各包文件职责与关键符号、按任务快速定位）已拆到单独文件维护：[`CODEMAP.md`](CODEMAP.md)。
 
-```text
-.
-├── cmd/
-│   ├── qqmusic/      # 可执行入口 main：crash.log、诊断开关、app.Run
-│   ├── genicon/      # SVG → PNG/ICO/.syso 图标生成
-│   └── probe/        # 命令行接口验证（线上冒烟测试）
-├── internal/
-│   ├── app/          # 全部应用状态、页面、播放队列、登录流程、界面
-│   ├── qqmusic/      # QQ 音乐接口客户端（HTTP、登录、LRC、类型）
-│   ├── player/       # 边下载边解码的 MP3 播放器
-│   └── diag/         # 内存采样页 + net/http/pprof
-├── resources/        # 图标源文件与嵌入资源
-├── mygo.json         # 应用名、identifier、版本号、入口、输出目录
-├── 启动run.bat       # 编译并启动
-└── 打包build.bat     # 打包 Portable + Setup
-```
-
-### 4.2 `internal/app`（界面与状态，改动最频繁）
-
-| 文件 | 职责 | 关键符号 |
-|---|---|---|
-| `app.go` | 应用状态、页面与历史、异步任务调度、持久化、各页面数据加载、搜索、会话、我喜欢 | `app`、`page`/`pageKind`、`songList`、`albumList`、`singerTab`、`playMode`、`settings`、`platform`、`newApp`、`do`、`toast`、`errText`、`load`/`saveSettings`/`saveCredential`/`saveQueue`、`savedQueue`、`navigate`/`back`/`forward`/`enter`、`loadHome`/`loadSquare`/`loadCharts`/`loadList`/`loadSinger`/`loadAlbums`/`sortSinger`/`showTab`、`runSearch`/`showSearchTab`/`loadSearchTab`/`searchSingers`/`searchPlaylists`/`searchMore`、`found`/`searchTab`、`startSession`/`loggedIn`/`loadMine`/`logout`/`toggleLike`、`addRecent` |
-| `playback.go` | 播放队列与播放控制、歌词加载、自动切歌、音量 | `nowPlaying`、`playList`、`playRadio`、`moreRadio`、`playNext`、`enqueue`、`removeFromQueue`、`clearQueue`、`reshuffle`、`playAt`、`loadLyrics`、`togglePlay`、`next`、`prev`、`shuffleStep`、`tick`、`setVolume`、`toggleMute` |
-| `comments.go` | 歌词页旁的歌曲评论：状态、热门/最新分页加载、与播放队列互斥的开关；歌词页打开或切歌时同步当前歌曲的评论 | `comments`、`commentList`、`commentPage`、`commentsShown`、`sidePanel`、`toggleLyrics`/`toggleQueue`/`toggleComments`、`showCommentOrder`、`syncComments`、`loadComments` |
-| `login.go` | 登录对话框的流程层：二维码轮询、WebView 登录回调 | `openLogin`、`closeLogin`、`newQR`、`loginWithWebView`、`errLoginClosed` |
-| `desktop.go` | `platform` 的真实实现；主窗口、QQ 登录窗口、托盘；程序入口 | `desktop`、`Post`、`OpenQQLogin`、`newTray`、`Run` |
-| `view.go` | 根布局、主题与颜色、通用控件、侧边栏、顶栏、窗口按钮、封面/格式化 | `col*`、`radius*`、`sidebarWidth`/`barHeight`/`topHeight`/`tintHeight`/`queueWidth`、`theme`、`view`、`fadingPanelCorners`、`topbar`、`windowControls`/`windowButton`、`ghostButton`、`searchBox`、`userArea`、`avatar`、`variant`/`button`/`toggle`/`tabs`/`badge`、`sidebar`、`playlistSection`、`navItem`、`cover`/`coverOr`、`formatCount`/`formatTime` |
-| `view_pages.go` | 页面分发与主内容区：首页、歌单广场、排行榜、歌单/榜单/专辑/最近播放、歌曲表格、右键菜单 | `content`、`columns`、`pageScroll`、`heading`、`errorRow`、`greeting`、`homePage`、`forYou`/`forYouCard`/`homeCover`、`songCards`/`playCircle`/`playlistGrid`/`playlistCard`/`playPage`、`squarePage`、`chartsPage`/`topCharts`、`listPage`/`recentPage`/`listHeader`/`listTint`、`songTable`/`columnTitles`/`songRow`、`singerLinks`/`albumLink`、`equalizer`、`isPlaying`、`songMenu` |
-| `view_player.go` | 底部播放栏、播放模式菜单、进度/音量滑块、歌词页、播放队列面板 | `iconButton`、`playerBar`、`modeIcons`/`modeButton`、`timeText`、`thinSlider`、`progress`、`nowPlayingPage`、`lyricPad`/`lyricsView`、`queuePanel` |
-| `view_comments.go` | 歌词页的「评论」页签与右侧评论面板（与队列共用右侧槽位）：热门/最新两个页签、评论行、滚到底加载下一页 | `commentsTab`、`commentsPanel`、`commentsCard`、`emptyComments`、`commentsEnd`、`commentRow`、`commentStat`、`formatAgo` |
-| `view_login.go` | 登录对话框视图：QQ 扫码 / 微信扫码 / QQ 账号三个页签 | `loginDialog`、`qrPane`、`accountPane` |
-| `view_search.go` | 搜索页：热门搜索、直达卡片（歌手/专辑）+ 单曲/歌手/歌单三个页签；单曲分页，歌手/歌单切到页签时才加载、按页追加 | `searchPage`、`searchHeader`、`directCard`、`searchCover`、`foundSongs`/`foundSingers`/`foundPlaylists`、`foundGrid`/`foundEnd`、`singerCard`/`singerSide` |
-| `view_singer.go` | 歌手页：头部 + 歌曲/专辑两个页签 + 排序 + 分页加载 | `singerPage`、`singerBar`、`singerSongsEnd`、`albumRow`、`singerAlbumsEnd` |
-| `icons.go` | Lucide 风格 SVG 图标集合与应用 Logo | `icLogo`、`icon`/`filledIcon`、`icHome`…`icWeChat`、`icComment`/`icThumb` |
-| `images.go` | 图片异步下载、缩放、缓存、按帧淘汰；同时缓存图片主色 | `images`、`imageEntry`、`imageBudget`（48 MiB）、`newImages`、`frame`、`get`、`peek`、`color`、`shrink` |
-| `palette.go` | 从封面提取主色（median cut + Palette 目标），生成页面顶部渐变色；颜色过渡 | `swatch`、`target`、`paletteTargets`、`dominantColor`、`quantize`、`box`、`hsl`、`tint`、`oklch`、`tintNone`、`tintFade`、`pageTint` |
-| `motion.go` | 页面/歌词/队列的进入退出动画、歌手页页签行级动画 | `pageOut`/`pageSpring`、`lyricsOut`/`lyricsSpring`、`queueOut`/`panelOut`/`sideSpring`、`appear`、`presence`、`tabMotion` |
-| `skeleton.go` | 各种加载骨架屏 | `skeleton`、`bone`、`bar`、`headingSkeleton`、`songCardsSkeleton`、`forYouSkeleton`、`playlistSkeleton`、`singerSkeleton`、`topChartsSkeleton`、`chipsSkeleton`、`songRowsSkeleton`、`listSkeleton`、`lyricsSkeleton`、`commentsSkeleton` |
-| `memory.go` | 延迟把 Go 堆内存归还系统 | `trimmer`、`trimDelay`（3s）、`soon` |
-| `app_test.go` | 无窗口 UI 测试与联网页面走查 | `fakePlatform`、`newTestApp`、`settle`、`shot`、`TestPages`、`TestLRC`、`TestModeMenu`、`TestPlayModes`、`TestSearchSinger`、`TestDisplayName`、`TestRecent`、`TestComments` |
-| `palette_test.go` | 主色提取与 tint 的单元测试 | `TestDominantColor`、`TestTint` |
-
-### 4.3 `internal/qqmusic`（接口层）
-
-| 文件 | 职责 | 关键符号 |
-|---|---|---|
-| `client.go` | HTTP 传输与 `musicu.fcg` 协议：公共参数、签名、Cookie、批量调用、错误码映射、图片下载 | `Client`、`New`、`Credential`/`SetCredential`/`LoggedIn`、`hash33`、`Req`、`comm`、`CallMany`、`Call`、`get`/`Fetch`、`flexInt`、`APIError`、`ErrNotLoggedIn`、`Platform`（`Web`/`Desktop`） |
-| `api.go` | 所有业务接口与标签常量 | `Search`（含直达 `parseDirect`）/`SearchSingers`/`SearchPlaylists`/`Suggest`/`HotKeys`、`Toplists`/`ToplistDetail`、`RecommendPlaylists`/`PlaylistsByCategory`/`PlaylistDetail`/`AllPlaylistSongs`、`SingerDetail`/`SingerSongs`/`SingerAlbums`/`AlbumDetail`、`NewSongs`、`Lyric`、`Comments`/`CommentOrder`/`cleanComment`、`SongURL`/`ErrNoSource`、`Profile`、`CreatedPlaylists`/`FavPlaylists`/`LikeSong`、`GuessYouLike`/`DailySongs`、`PlaylistCategories`、`Order` |
-| `login.go` | 凭证模型、二维码登录（QQ/微信）、WebView Cookie 登录、刷新与登出 | `Credential`、`NeedsRefresh`、`QR`、`QRKind`、`QRState`、`NewQR`、`PollQR`、`loginQQSig`、`LoginQQCookies`、`loginWeChat`、`acceptLogin`、`Refresh`、`Logout`、`QQLoginPage`、`LoginDoneURLPrefix` |
-| `api_test.go` | 直达（zhida）解析、评论文本清理的单元测试 | `TestParseDirect`、`TestCleanComment` |
-| `lyric.go` | LRC 解析、翻译合并、按时间取行 | `LyricLine`、`ParseLRC`、`parseLRCLines`、`LineAt` |
-| `types.go` | 数据模型与展示辅助 | `Song`/`Singer`/`Album`/`File`/`Pay`、`Playlist`、`Toplist`/`ToplistGroup`、`SingerInfo`、`FoundSinger`、`Direct`/`DirectKind`、`AlbumInfo`、`User`、`Comment`/`CommentReply`、`Quality`、`AlbumCover`/`SingerPhoto`、`Artists`/`DisplayName`/`VIP`/`Cover`/`Duration` |
-
-### 4.4 `internal/player`（播放器）
-
-| 文件 | 职责 | 关键符号 |
-|---|---|---|
-| `player.go` | 对外播放器：加载、播放/暂停、跳转、音量、缓冲进度；一把锁保护全部状态 | `Player`、`New`、`Load`、`Stop`、`Play`、`Pause`、`Playing`、`Loading`、`Loaded`、`Ended`、`Seek`、`Position`、`Duration`、`Buffered`、`SetVolume`、`Volume` |
-| `buffer.go` | 把 HTTP 响应边下边存进内存；`ReadAt` 等待所需字节；关闭即取消下载 | `buffer`、`openBuffer`、`fill`、`ReadAt`、`Size`、`Progress`、`Close`、`reader` |
-| `decoder.go` | 跳过 ID3、找 MP3 帧、go-mp3 解码、按码率估算偏移实现 seek、坏帧重同步 | `mp3Decoder`、`newMP3Decoder`、`sync`、`frameLen`、`Read`、`SetPosition`、`SampleRate`/`Channels`/`Len` |
-| `decoder_test.go` | 联网解码/跳转测试（需 `PLAYER_TEST_URL`） | `TestStreamDecoder` |
-
-### 4.5 其他
-
-| 路径 | 职责 | 关键符号 |
-|---|---|---|
-| `internal/diag/diag.go` | 内存采样、事件、`/mem` 页面、`/mem.json`、`POST /mem/gc`、pprof | `Start`、`Event`、`FreeOSMemory`、`goMemory`、`take`、`serveData` |
-| `internal/diag/mem.html` | 内存曲线前端（被 `go:embed` 嵌入） | — |
-| `internal/diag/procmem_windows.go` / `procmem_other.go` | 读取进程私有内存/提交量（平台实现） | `processMemory` |
-| `cmd/qqmusic/main.go` | 把崩溃栈写入 `crash.log`；按 `QQMUSIC_PPROF` 启动诊断；调用 `app.Run()` | `main` |
-| `cmd/genicon/main.go` | 从 `logo.svg`/`tray.svg` 渲染 PNG、ICO 与预览图 | `main`、`ico`、`render`、`sheet` |
-| `cmd/genicon/syso.go` | 把 `.ico` 编成 Windows COFF 资源对象，供 `go build` 链接 | `iconSyso` |
-| `cmd/probe/main.go` | 对线上接口做冒烟验证；支持扫码登录、测播放地址 | `main`、`check` |
-| `resources/resources.go` | 嵌入 `logo.svg`、`icon-256.png`、`tray.png` | `LogoSVG`、`WindowIcon`、`TrayIcon` |
-| `resources/logo.svg`、`tray.svg` | 图标源文件；改完跑 `go run ./cmd/genicon` | — |
-| `mygo.json` | `name` / `identifier` / `version` / `main` / `out`，打包脚本读取版本号 | — |
-
-### 4.6 按任务快速定位
-
-| 要改什么 | 先看 |
-|---|---|
-| 整体布局、侧边栏、顶栏、窗口按钮 | `internal/app/view.go` |
-| 首页、广场、排行榜、歌单表格 | `internal/app/view_pages.go` |
-| 搜索页的页签与结果 | `internal/app/view_search.go` + `app.go`（`runSearch`） |
-| 播放栏、进度/音量、歌词页、队列面板 | `internal/app/view_player.go` |
-| 歌曲评论（歌词页页签 + 右侧面板） | `internal/app/view_comments.go` + `internal/app/comments.go` |
-| 登录弹窗的显示与三个页签 | `internal/app/view_login.go` + `internal/app/login.go` |
-| 歌手页的页签/排序/分页 | `internal/app/view_singer.go` |
-| 队列行为、切歌、播放模式、音量 | `internal/app/playback.go` |
-| 页面数据加载、导航、搜索、我喜欢 | `internal/app/app.go` |
-| 接口地址/参数/返回字段 | `internal/qqmusic/api.go` + `types.go` |
-| 登录协议、扫码轮询、凭证刷新 | `internal/qqmusic/login.go` |
-| 缓冲、解码、seek | `internal/player/{buffer,decoder,player}.go` |
-| 主题色、圆角、间距 | `internal/app/view.go`（`col*`、`radius*`、`theme`） |
-| 封面取色与顶部渐变 | `internal/app/palette.go` |
-| 图标 | `internal/app/icons.go`；应用图标改 `resources/*.svg` 后重跑 genicon |
-| 卡顿/内存 | `internal/app/images.go`、`memory.go`、`internal/diag` |
-| 托盘/窗口/QQ 登录窗口 | `internal/app/desktop.go` |
+新增/删除文件、新增页面或接口后，同步更新 `CODEMAP.md`。
 
 ## 5. 架构与数据流
 
@@ -172,7 +80,7 @@ cmd/qqmusic (main)
         ├── login.go         登录流程
         ├── desktop.go       platform 实现（窗口、托盘、WebView）
         ├── internal/qqmusic HTTP 接口 + 登录协议 + LRC
-        └── internal/player  流式 MP3 播放
+        └── internal/player  流式播放（MP3 / FLAC / AAC）
 ```
 
 ### 5.2 线程与异步
@@ -197,15 +105,19 @@ UI 线程：view(c) → 点击/快捷键 → app 方法 → a.do(work)
 - `enter(p)` 只在需要时触发首次加载。
 - 歌单/榜单/专辑/歌手页的数据放在 `app.lists[page.key()]`；最近播放用 `recentView`。
 - 我喜欢是 `page{kind: pagePlaylist, dirid: 201}`，自己的歌单 `id` 可能为 0、用 `dirid` 打开。
+- 侧边栏只有一个「小宇宙」入口，按 `settings.XyzOfficial` 打开 `pagePodcast`（QQ 音乐内置）或 `pageXyz`（官方）；两页标题都由 `podcastTitle` 画：右上角徽章显示「QQ音乐」/「官方」，右侧按钮调 `switchPodcasts`，它原地替换当前页（不入历史栈）并保存设置。
+- 小宇宙官方（原 beta）是 `pageXyz`（页签：推荐/发现/订阅更新/我的订阅），节目页是 `pageXyzShow`（`mid` 为小宇宙 pid），分类页是 `pageXyzCategory`（`mid` 为分类 id）。它直连小宇宙官方接口（`internal/xyz`），和 QQ 音乐内置的 `pagePodcast` 无关；单集作为 `qqmusic.Song` 进队列，`Source == "xyz"`、`URL` 为音频直链（付费单集 `URL` 为空，播放时调 `PrivateMedia`），播放不需要登录 QQ 音乐、不走 `SongURL`，也不能加入「我喜欢」。
+- 小宇宙是 `pagePodcast`；播客节目复用 `pageAlbum`（有 mid 用 mid，只有 id 时用 `id`），`AlbumInfo.IsPodcast()` 时按页加载单集（`PodcastPage`=30，滚到底再取），不要改回全量循环（有的节目上万集）。
+- `app.podcast.known` 里的专辑（播客）单集固定用 128k 播放，见 `playAt`：整集驻留内存，320k 一小时就是 144 MB。
 
 ### 5.4 一次播放的链路
 
 ```text
 playList / playAt
-  → api.SongURL(song, quality)        // 需要登录；HQ 不可用时降级
-  → player.Load(url, duration)        // goroutine 中阻塞到文件开始下载
+  → api.SongURL(song, quality)        // 需要登录；FLAC → 320k → 128k → AAC 逐级降级
+  → player.Load(url, duration)        // goroutine 中阻塞到文件开始下载（AAC 要下完）
       → openBuffer(url)               // 内存缓冲 + 后台下载
-      → newMP3Decoder(buffer, duration) // 找帧、go-mp3 解码
+      → openDecoder(buffer, duration) // 按文件头：fLaC → flacDecoder，ftyp → aacDecoder，否则 mp3Decoder
       → audio.NewPlayer(decoder)
   → loadLyrics(song)                  // LRC + 翻译
   → 每帧 view → tick()
@@ -221,6 +133,8 @@ playList / playAt
 - 微信扫码：同上，`QRWeChat`，轮询是长轮询。
 - QQ 账号：`loginWithWebView` → `desktop.OpenQQLogin`（WebView2）→ 导航到 `LoginDoneURLPrefix` 后取 `graph.qq.com` Cookie → `LoginQQCookies`。
 - `loggedIn()`：保存凭证 → 拉 `Profile` → `loadMine` → `loadHome(true)`。
+- 小宇宙扫码（小宇宙 beta 页内，与 QQ 登录无关）：`newXyzQR` → `xyz.NewQR` → 每 1.5s `PollQR`（离开页面即停）→ `xyzLoggedIn`。
+- 小宇宙手机号：`xyzPhoneLogin` → `desktop.OpenXyzLogin`（WebView2 打开 `xyz.LoginPage`）→ 每秒读 `xiaoyuzhoufm.com` 的 `x-jike-access-token`/`x-jike-refresh-token` Cookie → `SetTokens` → `xyzLoggedIn`。不要改成直接调短信接口：`send-code` 必须带阿里云验证码（`captcha`），只有浏览器能过。
 - 启动：`startSession()` 检查/刷新凭证 → `Profile` → `loadMine`；过期则清凭证并 toast。
 
 ### 5.6 持久化
@@ -229,9 +143,11 @@ playList / playAt
 
 | 文件 | 内容 | 写入时机 |
 |---|---|---|
-| `settings.json` | 音量、音质、播放模式、侧边栏折叠 | 设置变化、窗口关闭 |
+| `settings.json` | 音量、音质、播放模式、侧边栏折叠、小宇宙来源（`xyz_official`） | 设置变化、窗口关闭 |
 | `credential.json` | `qqmusic.Credential` | 登录成功、刷新、退出 |
 | `recent.json` | 最近播放（最多 100 首，按 Mid 去重） | 歌曲开始播放 |
+| `podcasts.json` | 小宇宙「我听过的节目」（最多 30 个，按节目 mid 去重；也用来在启动时认出哪些专辑是播客） | 播客单集开始播放、清空 |
+| `xyz.json` | 小宇宙 beta 的登录（access/refresh token、设备 ID）与昵称；退出只清 token，设备 ID 保留 | 扫码登录、token 刷新、退出 |
 | `queue.json` | 播放队列、当前位置、是否猜你喜欢电台（启动时恢复；没有它时回退为最近播放第一首） | 切歌、队列增删、清空（清空即删除文件） |
 | `crash.log` | 崩溃栈 | `debug.SetCrashOutput` |
 
@@ -289,7 +205,7 @@ playList / playAt
 4. 在 `enter(p)` 中按需触发首次加载。
 5. 在 `view_pages.go` 的 `content` 中分发到新的 `xxxPage(c)`。
 6. 如需入口，在 `view.go` 的 `sidebar` 增加 `navItem`。
-7. 更新第 4 节 codemap。
+7. 更新 `CODEMAP.md` 的 codemap。
 
 ### 7.2 新增一个接口
 
@@ -321,25 +237,28 @@ playList / playAt
 ### 7.6 调试内存/卡顿
 
 - `QQMUSIC_PPROF=127.0.0.1:6060` 启动后访问 `/mem`；`/mem.json` 可取原始采样；`POST /mem/gc` 主动回收。
-- 播放一首歌会占用约歌曲大小的内存（`buffer` 全量保存）；播放完成后 `trimmer` 延迟 3s 归还。
+- 播放一首歌会占用约歌曲大小的内存（`buffer` 全量保存）：MP3 约 4–12 MB，FLAC 约 25–60 MB（24-bit 更大）；AAC 解码时 Media Foundation 还会再拷一份。播放完成后 `trimmer` 延迟 3s 归还。
 - 图片缓存上限 48 MiB，按最近使用帧淘汰；封面尺寸由 `cover` 的 `side` 决定（≤64 用 120px，否则 300px）。
 - 卡顿优先看是否在 `view` 中做了同步 IO，或列表 key 不稳定导致全量重建。
 
 ## 8. 已知坑
 
-1. **搜索接口会随机返回 2001**：`search()` 已内置重试（2 次，间隔 400ms），不要删。同时发起的搜索越多越容易 2001，所以搜索页的歌手/歌单只在切到对应页签时才加载（`loadSearchTab`），不要改回一次全发。
+1. **搜索接口会随机返回 2001**：`search()` 已内置重试（2 次，间隔 400ms），不要删。同时发起的搜索越多越容易 2001，所以搜索页的歌手/歌单只在切到对应页签时才加载（`loadSearchTab`），不要改回一次全发。唯一例外是「播客」页签：按用户要求，新查询时在单曲之后立即并行发起（`loadSearchPodcasts`），单曲先显示；不要再给其他页签加并行。
 2. **我喜欢（dirid 201）写入会被网页端参数拒绝（80105）**：`LikeSong` 特意使用 `ct=11, cv=13020508` 的 app comm，不要“简化”成 `Web`。
 3. **`Fetch` 会把 `http://` 升级为 `https://`**：封面/音频地址都依赖这一点，不要绕过。
-4. **`player.Load` 会阻塞到文件开始下载**：必须在 `a.do` 的 goroutine 中调用，不能在 UI 线程直接调用。
+4. **`player.Load` 会阻塞到文件开始下载**（AAC 要等 MP4 的索引 `moov` 下完：在文件头时几百 KB，在文件尾时等于整个文件）：必须在 `a.do` 的 goroutine 中调用，不能在 UI 线程直接调用。
 5. **播放地址约一天后失效**：不要长期缓存 `SongURL` 结果。
-6. **HQ 降级是预期行为**：`SongURL` 在 `Size320 == 0` 时只请求标准音质；UI 会显示“无高品质”。
-7. **AAC-only 歌曲不可播放**：会走 `ErrNoSource` 并自动跳过，不要试图用 m4a 解码。
-8. **`go test ./...` 会访问线上接口**：日常用 `go test -short ./...`；`TestPages`/`TestSearchSinger` 依赖网络与接口现状。
-9. **exe 图标**：`go build` 只会链接 `cmd/qqmusic/mygo_windows_*.syso`；先跑 `go run ./cmd/genicon -syso`。`mygo build` 会自己处理图标与版本信息。
-10. **`-H=windowsgui`**：不带它会在 GUI 程序旁弹出控制台窗口。
-11. **不要手改生成物**：`build/`、`build/windows-amd64/resources.go`、`cmd/qqmusic/mygo_windows_*.syso`。
-12. **Windows 中文脚本**：`.bat` 使用 UTF-8 + `chcp 65001`，编辑时保持编码。
-13. **接口是非公开的**：字段可能随时变动；新增解析要允许空值，失败时走 `errText` 而不是 panic。
+6. **请求太多会被限流（104009）**：短时间内大量调用 `music.vkey.GetVkey` 后，所有歌曲的播放地址都返回 `code 104009`，包括之前能播的歌。测试时的请求量限制见 §2 第 11 条。
+7. **音质降级是预期行为**：`File.files` 只在 `SizeFlac`/`Size320 > 0` 时请求无损/HQ，并总是带上 128k 与 AAC 兜底；UI 会显示“无损不可用”“无高品质”或“无 MP3 音源”；选“最高音质”（`Best`，默认）时只显示实际拿到的音质，不提示降级。音质菜单里的文件大小来自歌曲信息的 `File.Size*`，不额外请求接口。无损通常要求会员。
+8. **AAC 走 Media Foundation**：只在 Windows amd64/arm64 上可用（`aac_windows.go`），Windows N 版缺媒体功能包时报 `errNoMF`。文件经 `aac_stream_windows.go` 的 Go `IStream`（`syscall.NewCallback`）交给它，读到未下载的部分会阻塞等待；`Close` 必须先关下载再释放 reader，否则阻塞中的读会让解码线程卡死。Media Foundation 不裁掉 AAC 的编码器前置延迟（约 2112 个样本，≈48ms），可以忽略。不要为此引入 cgo 或纯 Go 的 AAC 解码库。
+9. **`mewkiz/flac` 的 `Frame.SampleNumber()` 对定长分块流的最后一帧是错的**（用的是该帧自己的 BlockSize）；`flacDecoder.first` 用 STREAMINFO 的块大小计算，不要换回去。也不要用 `flac.Stream.Seek`：没有 seek table 时它会读完整个文件。
+10. **`go test ./...` 会访问线上接口**：日常用 `go test -short ./...`；`TestPages`/`TestSearchSinger` 依赖网络与接口现状。
+11. **exe 图标**：`go build` 只会链接 `cmd/qqmusic/mygo_windows_*.syso`；先跑 `go run ./cmd/genicon -syso`。`mygo build` 会自己处理图标与版本信息。
+12. **`-H=windowsgui`**：不带它会在 GUI 程序旁弹出控制台窗口。
+13. **不要手改生成物**：`build/`、`build/windows-amd64/resources.go`、`cmd/qqmusic/mygo_windows_*.syso`。
+14. **Windows 中文脚本**：`.bat` 使用 UTF-8 + `chcp 65001`，编辑时保持编码。
+15. **接口是非公开的**：字段可能随时变动；新增解析要允许空值，失败时走 `errText` 而不是 panic。
+16. **小宇宙 beta 的 m4a 边下边播**：实测 1h16m 的单集 0.15s 开播（索引在文件头）。整集仍驻留内存（60–120 MB）。小宇宙的 `/v1/episode-transcript/get` 对本客户端返回的是与节目无关的占位文字稿，不要接成歌词。
 
 ## 9. MyGo 维护要点（摘自 `.agents/skills/mygo-maintenance/SKILL.md`）
 
@@ -359,6 +278,15 @@ playList / playAt
 - [ ] `go tool mygo vet .` 无新增告警
 - [ ] 涉及网络/播放/登录时，手动运行确认
 - [ ] 没有在 `view` 构建期引入副作用
-- [ ] 新页面/接口已更新第 4 节 codemap
+- [ ] 新页面/接口已更新 `CODEMAP.md`
 - [ ] 未提交 `cred.json`、`build/`、`*.syso` 等生成物
 - [ ] 用户可见文案为中文，代码注释为英文
+
+## 11. 代码规范
+1、要为一个推测出来的、几乎不会发生的并发或安全边界加复杂度之前，先跟用户讲清楚：具体会出什么问题、概率多大、要多写多少，用户点头了再加。不许为了「理论上更稳」悄悄扩大范围。
+
+2、外面进来的数据只在入口校验一次，往里传就用定好类型的值，不要每一层再判断一遍。
+
+3、只用一次的逻辑不要提前抽成函数，直接写在调用的地方，除非它会复用，或者真藏着一块复杂的东西。
+
+4、能不用 try/catch 就不用，能一个函数写完就别拆。

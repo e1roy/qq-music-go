@@ -12,7 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"qqmusic/internal/qqmusic"
-	"qqmusic/internal/xyz"
+	"qqmusic/internal/xiaoyuzhou"
 	"qqmusic/resources"
 )
 
@@ -24,9 +24,9 @@ type desktop struct {
 	// main thread only.
 	bounds *time.Timer
 
-	mu       sync.Mutex
-	loginWin *mygo.Window
-	xyzWin   *mygo.Window
+	mu            sync.Mutex
+	loginWin      *mygo.Window
+	xiaoyuzhouWin *mygo.Window
 }
 
 func (d *desktop) Post(fn func()) { d.win.Update(fn) }
@@ -104,14 +104,14 @@ func (d *desktop) OpenQQLogin(done func([]*cookie, error)) {
 	}()
 }
 
-// OpenXyzLogin shows 小宇宙's login page in a window of its own, which logs
+// OpenXiaoyuzhouLogin shows 小宇宙's login page in a window of its own, which logs
 // in by phone number past a captcha only a browser solves. The page keeps
 // the tokens in cookies of xiaoyuzhoufm.com: once they are there, the
 // window closes with them.
-func (d *desktop) OpenXyzLogin(done func(access, refresh string, err error)) {
+func (d *desktop) OpenXiaoyuzhouLogin(done func(access, refresh string, err error)) {
 	d.mu.Lock()
-	if d.xyzWin != nil {
-		d.xyzWin.Focus()
+	if d.xiaoyuzhouWin != nil {
+		d.xiaoyuzhouWin.Focus()
 		d.mu.Unlock()
 		return
 	}
@@ -128,7 +128,7 @@ func (d *desktop) OpenXyzLogin(done func(access, refresh string, err error)) {
 			BackgroundColor: "#ffffff",
 		})
 		d.mu.Lock()
-		d.xyzWin = w
+		d.xiaoyuzhouWin = w
 		d.mu.Unlock()
 		stop := make(chan struct{})
 		var once sync.Once
@@ -136,13 +136,13 @@ func (d *desktop) OpenXyzLogin(done func(access, refresh string, err error)) {
 			once.Do(func() {
 				close(stop)
 				d.mu.Lock()
-				d.xyzWin = nil
+				d.xiaoyuzhouWin = nil
 				d.mu.Unlock()
 				done(access, refresh, err)
 			})
 		}
 		w.OnClosed(func() { finish("", "", errLoginClosed) })
-		w.Page().LoadURL(xyz.LoginPage)
+		w.Page().LoadURL(xiaoyuzhou.LoginPage)
 		for {
 			select {
 			case <-stop:
@@ -156,9 +156,9 @@ func (d *desktop) OpenXyzLogin(done func(access, refresh string, err error)) {
 			var access, refresh string
 			for _, c := range cs {
 				switch c.Name {
-				case xyz.TokenCookie:
+				case xiaoyuzhou.TokenCookie:
 					access = c.Value
-				case xyz.RefreshCookie:
+				case xiaoyuzhou.RefreshCookie:
 					refresh = c.Value
 				}
 			}
@@ -320,7 +320,7 @@ func Run() error {
 		}
 		a.enter(a.current())
 		a.startSession()
-		a.startXyz()
+		a.startXiaoyuzhou()
 	})
 	return mygo.App.Run()
 }

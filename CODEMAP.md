@@ -11,11 +11,14 @@
 ├── cmd/
 │   ├── qqmusic/      # 可执行入口 main：crash.log、诊断开关、app.Run
 │   ├── genicon/      # SVG → PNG/ICO/.syso 图标生成
-│   └── probe/        # 命令行接口验证（线上冒烟测试）
+│   ├── probe/        # 命令行接口验证（线上冒烟测试）
+│   └── zz_feeddump/、zz_podcast/  # 一次性接口探针，带 `//go:build probe`，平时不编译
 ├── internal/
-│   ├── app/          # 全部应用状态、页面、播放队列、登录流程、界面
+│   ├── app/          # 应用状态、页面加载编排、播放编排、登录流程、界面（展示层 + 编排层）
+│   ├── playqueue/    # 播放队列规则（纯数据结构，无 IO）
+│   ├── store/        # 应用数据目录中的 JSON 文件读写
 │   ├── qqmusic/      # QQ 音乐接口客户端（HTTP、登录、LRC、类型）
-│   ├── xyz/          # 小宇宙官方接口客户端（扫码登录、榜单、订阅、搜索、节目网页）
+│   ├── xiaoyuzhou/   # 小宇宙官方接口客户端（扫码登录、发现、榜单、订阅、搜索、节目网页）
 │   ├── player/       # 边下载边解码的播放器（MP3 / FLAC / AAC）
 │   └── diag/         # 内存采样页 + net/http/pprof
 ├── resources/        # 图标源文件与嵌入资源
@@ -28,21 +31,27 @@
 
 | 文件 | 职责 | 关键符号 |
 |---|---|---|
-| `app.go` | 应用状态、页面与历史、异步任务调度、持久化、各页面数据加载、搜索、会话、我喜欢 | `app`、`page`/`pageKind`、`songList`、`albumList`、`singerTab`、`playMode`、`settings`、`platform`、`newApp`、`do`、`toast`、`errText`、`load`/`saveSettings`/`saveCredential`/`saveQueue`、`savedQueue`、`navigate`/`back`/`forward`/`enter`、`loadHome`/`moreRecs`/`moreRadar`/`loadSquare`/`loadCharts`/`loadList`/`loadAlbum`（专辑全量；播客单集按页）/`loadSinger`/`loadAlbums`/`sortSinger`/`showTab`、`runSearch`/`suggestAsTyped`/`searchWords`/`searchStep`/`searchKeys`/`chooseSearch`/`rememberSearch`/`clearSearches`/`showSearchTab`/`loadSearchTab`/`loadSearchPodcasts`/`searchSingers`/`searchPlaylists`/`searchMore`、`found`/`searchTab`、`startSession`/`loggedIn`/`loadMine`/`logout`/`toggleLike`、`addRecent` |
-| `playback.go` | 播放队列与播放控制、歌词加载、自动切歌、音量 | `nowPlaying`、`playList`、`playRadio`、`moreRadio`、`playNext`、`enqueue`、`removeFromQueue`、`clearQueue`、`reshuffle`、`playAt`、`loadLyrics`、`togglePlay`、`next`、`prev`、`shuffleStep`、`tick`、`setVolume`、`toggleMute` |
-| `podcast.go` | 小宇宙（QQ 音乐内置播客）：状态、专区与推荐加载、换一批、我听过的节目（`podcasts.json`）与已知播客集合（决定 128k 播放）、节目/单集搜索分页 | `podcasts`、`podcastSearch`、`podcastFound`、`heardMax`、`pageOf`、`loadPodcasts`、`morePicks`、`recentEpisodes`、`hearShow`/`clearHeard`/`saveHeard`、`searchPodcasts`、`showPodcastTab`/`loadPodcastTab`、`moreShows`/`moreEpisodes`/`morePodcastsFound`（搜索页的播客页签）、`podcastMore` |
+| `app.go` | `app` 结构体（各区域状态的所有者）、`platform` 接口、`newApp`、后台任务入口与错误文案 | `app`、`platform`、`cookie`、`newApp`、`do`、`toast`、`errText` |
+| `nav.go` | 页面与历史：`page`/`pageKind`，前进后退，`enter` / `refresh` / `refreshing` 三个按页面分派的 switch（相邻排列，新增页面时一起改） | `page`/`pageKind`、`current`、`navigate`、`podcastHome`/`switchPodcasts`、`back`/`forward`、`enter`、`refresh`、`refreshing` |
+| `library.go` | QQ 音乐歌曲类页面的加载编排：首页、音乐馆（榜单/广场）、歌单/榜单/专辑（播客单集按页）/歌手，以及卡片上的「播放」 | `songList`、`albumList`、`singerTab`、`loadHome`/`moreRecs`/`moreRadar`、`loadSquare`/`addPlaylists`、`loadCharts`、`loadList`、`listSongs`（歌单/榜单取歌，`loadList` 与 `playPage` 共用）、`playPage`、`loadAlbum`、`loadSinger`/`loadAlbums`/`sortSinger`/`showTab` |
+| `search.go` | 搜索：单曲分页、歌手/歌单/播客页签、联想、搜索历史、搜索框作用域 | `searchTab`、`runSearch`、`suggestAsTyped`/`rest`、`searchWords`/`searchStep`/`searchKeys`、`chooseSearch`、`searchScope`（`scopeMusic`/`scopePodcasts`/`scopeXiaoyuzhou`）、`rememberSearch`/`clearSearches`、`showSearchTab`/`loadSearchTab`/`loadSearchPodcasts`、`searchMore`/`searchSingers`/`searchPlaylists`/`addSingers`、`moreXiaoyuzhouPodcastsFound`/`moreFoundPodcasts`（播客页签同时搜小宇宙官方） |
+| `session.go` | QQ 音乐会话：启动校验、登录成功、我的歌单、退出、我喜欢 | `startSession`、`loggedIn`、`loadMine`、`setLiked`（重读我喜欢时保留进行中的红心，`app.liking`）、`logout`、`toggleLike` |
+| `pager.go` | 分页列表的统一状态与加载：搜索的歌手/歌单/播客、小宇宙（QQ 音乐）的节目/单集搜索、小宇宙官方的各列表。各列表的翻页方式（页码或游标）、结束判定、去重与错误文案留在各自的包装函数里 | `pager`（`items`/`pages`/`more`/`total`/`after`/`list`）、`reset`、`loadPage`；包装：`searchMore`（search.go）、`podcastMore`（podcast.go）、`xiaoyuzhouMore`（xiaoyuzhou.go） |
+| `settings.go` | 持久化记录与读写（经 `internal/store`）、有附带规则的设置项方法、「最近使用」列表；读取时把 v1.0.1 的 `xyz_official` 与单集 `Source: "xyz"` 转成新名 | 文件名常量 `file*`（含旧名 `fileOldXiaoyuzhou`）、`settings`（`OldOfficial` 只读不写）、`savedQueue`、`recentMax`、`load`、`saveQueue`/`saveSettings`/`saveCredential`、`setQuality`（模式 `Mode` 在 `load` 中校验范围）、`rememberWindow`、`pushFront`、`addRecent` |
+| `playback.go` | 播放编排：队列操作（规则在 `internal/playqueue`）、音源解析、失败跳过、歌词、自动切歌、音量；音质徽章文字 | `nowPlaying`、`playList`、`playRadio`、`moreRadio`、`playNext`、`enqueue`、`removeFromQueue`、`clearQueue`、`playAt`（含按来源取音源）、`qualityLabel`、`loadLyrics`、`togglePlay`、`next`、`prev`、`tick`、`setVolume`、`toggleMute` |
+| `podcast.go` | 小宇宙（QQ 音乐内置播客）：状态、专区与推荐加载、换一批、我听过的节目（`podcasts.json`）与已知播客集合（决定 128k 播放）、节目/单集搜索分页 | `podcasts`、`qqEpisode`/`isEpisode`（「节目」的判定，右键菜单与歌词页共用）、`podcastSearch`、`heardMax`、`pageOf`、`loadPodcasts`、`morePicks`、`recentEpisodes`、`hearShow`/`clearHeard`/`saveHeard`、`searchPodcasts`、`showPodcastTab`/`loadPodcastTab`、`moreShows`/`moreEpisodes`/`morePodcastsFound`（搜索页的播客页签）、`podcastMore` |
 | `comments.go` | 歌词页旁的歌曲评论：状态、热门/最新分页加载、与播放队列互斥的开关；歌词页打开或切歌时同步当前歌曲的评论 | `comments`、`commentList`、`commentPage`、`commentsShown`、`sidePanel`、`toggleLyrics`/`toggleQueue`/`toggleComments`、`showCommentOrder`、`syncComments`、`loadComments` |
 | `login.go` | 登录对话框的流程层：二维码轮询、WebView 登录回调 | `openLogin`、`closeLogin`、`newQR`、`loginWithWebView`、`errLoginClosed` |
-| `desktop.go` | `platform` 的真实实现；主窗口、QQ 登录窗口、小宇宙手机号登录窗口、托盘；程序入口 | `desktop`、`Post`、`OpenQQLogin`、`OpenXyzLogin`、`newTray`、`Run` |
+| `desktop.go` | `platform` 的真实实现；主窗口、QQ 登录窗口、小宇宙手机号登录窗口、托盘；程序入口 | `desktop`、`Post`、`OpenQQLogin`、`OpenXiaoyuzhouLogin`、`newTray`、`Run` |
 | `view.go` | 根布局、主题与颜色、通用控件、侧边栏、顶栏、窗口按钮、封面/格式化 | `col*`、`radius*`、`sidebarWidth`/`barHeight`/`topHeight`/`tintHeight`/`queueWidth`、`theme`、`view`、`fadingPanelCorners`、`topbar`、`windowControls`/`windowButton`、`ghostButton`、`searchBox`/`searchMenu`、`userArea`、`avatar`、`variant`/`button`/`toggle`/`tabs`/`badge`、`sidebar`、`playlistSection`、`navItem`、`cover`/`coverOr`、`formatCount`/`formatSize`/`formatTime` |
 | `view_pages.go` | 页面分发与主内容区：首页（含服务端下发标题的推荐信息流模块）、音乐馆（排行榜 / 歌单广场两个页签）、歌单/榜单/专辑/最近播放、歌曲表格、右键菜单 | `content`、`columns`、`pageScroll`、`heading`、`errorRow`、`greeting`、`homePage`、`refreshButton`、`forYou`/`forYouCard`/`homeCover`、`songCards`/`playCircle`/`playlistGrid`/`playlistCard`/`playPage`、`discoverTabs`/`squarePage`、`chartsPage`/`topCharts`、`listPage`/`recentPage`/`listHeader`/`listTint`、`songTable`/`columnTitles`/`songRow`、`singerLinks`/`albumLink`、`equalizer`、`isPlaying`、`songMenu` |
 | `view_player.go` | 底部播放栏、播放模式菜单、进度/音量滑块、歌词页、播放队列面板 | `iconButton`、`playerBar`、`modeIcons`/`modeButton`、`timeText`、`thinSlider`、`progress`、`nowPlayingPage`、`lyricPad`/`lyricsView`、`queuePanel` |
 | `view_comments.go` | 歌词页的「评论」页签与右侧评论面板（与队列共用右侧槽位）：热门/最新两个页签、评论行、滚到底加载下一页 | `commentsTab`、`commentsPanel`、`commentsCard`、`emptyComments`、`commentsEnd`、`commentRow`、`commentStat`、`formatAgo` |
 | `view_podcast.go` | 小宇宙页：最近收听、为你推荐（换一批）、我听过的节目、专区楼层（单集/主播/节目）、搜索结果（由顶栏搜索框发起，见 `chooseSearch`）；节目页（`pageAlbum` 且 `IsPodcast`）的单集表格与滚到底分页 | `podcastsPage`、`podcastCover`、`podcastResults`、`podcastEnd`、`picks`、`showGrid`/`showCard`、`hostGrid`、`showPage`、`episodeTitles`、`episodeRow`、`episodesEnd` |
-| `xyz.go` | 小宇宙 beta（直连小宇宙官方接口，不是 QQ 音乐内置的小宇宙）：状态、`xyz.json` 持久化、扫码登录轮询、榜单/订阅更新/我的订阅/搜索的分页加载、节目页（未登录或接口失败时回退网页版）；单集转成 `Song`（`Source=xyz`，`URL` 为音频直链） | `xyzState`、`xyzSource`、`xyzTops`、`xyzList`、`xyzShow`、`savedXyz`、`episodeSong`/`episodeSongs`、`albumOf`、`loadXyz`/`saveXyz`/`startXyz`、`xyzErr`/`xyzLogout`、`enterXyz`、`newXyzQR`/`xyzPhoneLogin`/`xyzLoggedIn`、`xyzPicked`/`moreXyzPicks`、`xyzTabFeed`…`xyzTabSubs`、`loadXyzFeed`、`xyzCategory`/`loadXyzCategory`/`showXyzCategoryTab`/`moreXyzCategory`、`showXyzTab`/`loadXyzTab`、`showXyzTop`/`loadXyzTop`、`xyzMore`、`moreXyzInbox`/`moreXyzSubs`、`searchXyz`/`showXyzSearchTab`/`moreXyzShows`/`moreXyzEpisodes`、`loadXyzShow`/`moreXyzShowEps`、`refreshXyz`/`xyzLoading` |
-| `view_xyz.go` | 小宇宙 beta 页：标题与账号、扫码/手机号登录卡片、推荐（分类探索 + 首页信息流各模块，单集为卡片）/发现（最热/锋芒/新星榜、编辑精选）/订阅更新/我的订阅四个页签、搜索结果（节目/单集）、单集行、节目卡片、节目页；分页列表滚到底自动加载下一页（`InView`） | `xyzPage`、`xyzCover`、`xyzHeader`、`xyzLogin`、`xyzFeed`/`xyzEpisodeCards`/`feedSongs`、`xyzCategoryPage`、`xyzCharts`/`xyzChartTabs`/`xyzChartLooks`、`xyzPicks`、`xyzResults`、`xyzEnd`/`xyzMoreRow`、`xyzEpisodes`/`xyzEpisodeRow`、`xyzShowGrid`、`xyzShowPage`/`xyzShowHeader` |
+| `xiaoyuzhou.go` | 小宇宙官方（直连小宇宙官方接口，不是 QQ 音乐内置的小宇宙）：状态、`xiaoyuzhou.json` 持久化（启动时把 v1.0.1 的 `xyz.json` 改名迁移）、扫码登录与轮询、推荐/发现/订阅更新/我的订阅/搜索的加载、分类页、节目页（未登录或接口失败时回退网页版）；单集转成 `Song`（`Source=xiaoyuzhou`，`URL` 为音频直链） | `xiaoyuzhouState`、`xiaoyuzhouSource`/`oldXiaoyuzhouSource`、`fromQQ`/`isXiaoyuzhou`（曲目来源谓词）、`xiaoyuzhouTabFeed`…`xiaoyuzhouTabSubs`、`xiaoyuzhouCharts`/`xiaoyuzhouPicked`、`xiaoyuzhouChart`、`xiaoyuzhouFeed`、`xiaoyuzhouCategory`、`xiaoyuzhouShow`、`savedXiaoyuzhou`、`episodeSong`/`episodeSongs`、`albumOf`、`loadXiaoyuzhou`/`saveXiaoyuzhou`/`startXiaoyuzhou`、`xiaoyuzhouErr`/`logoutXiaoyuzhou`、`enterXiaoyuzhou`、`newXiaoyuzhouQR`/`pollXiaoyuzhouQR`/`xiaoyuzhouPhoneLogin`/`xiaoyuzhouLoggedIn`、`showXiaoyuzhouTab`/`showXiaoyuzhouChart`/`loadXiaoyuzhouTab`、`refreshXiaoyuzhou`（重置当前页签后重载，旧内容保留到新数据到达）/`xiaoyuzhouLoading`、`loadXiaoyuzhouChart`、`loadXiaoyuzhouFeed`、`loadXiaoyuzhouCategory`/`showXiaoyuzhouCategoryTab`/`moreXiaoyuzhouCategory`、`xiaoyuzhouMore`、`moreXiaoyuzhouPicks`/`moreXiaoyuzhouInbox`/`moreXiaoyuzhouSubs`、`searchXiaoyuzhou`/`showXiaoyuzhouSearchTab`/`moreXiaoyuzhouShows`/`moreXiaoyuzhouEpisodes`、`loadXiaoyuzhouShow`/`moreXiaoyuzhouShowEps` |
+| `view_xiaoyuzhou.go` | 小宇宙官方页：标题与账号、扫码/手机号登录卡片、推荐（分类探索 + 首页信息流各模块，单集为卡片）/发现（最热/锋芒/新星榜、编辑精选）/订阅更新/我的订阅四个页签、搜索结果（节目/单集）、单集行、节目卡片、分类页、节目页；分页列表滚到底自动加载下一页（`pagerEnd`/`moreRow`，用 `InView`） | `xiaoyuzhouPage`、`xiaoyuzhouCover`、`xiaoyuzhouHeader`、`xiaoyuzhouLogin`、`xiaoyuzhouFeedTab`/`entrySongs`、`chartPills`/`xiaoyuzhouDiscoverTab`、`xiaoyuzhouPicks`、`xiaoyuzhouEpisodeCards`、`xiaoyuzhouCategoryPage`、`xiaoyuzhouResults`、`pagerEnd`/`moreRow`、`xiaoyuzhouEpisodes`/`xiaoyuzhouEpisodeRow`、`xiaoyuzhouShowGrid`/`xiaoyuzhouShowCard`（按需带来源徽章）、`xiaoyuzhouShowPage`/`xiaoyuzhouShowHeader` |
 | `view_login.go` | 登录对话框视图：QQ 扫码 / 微信扫码 / QQ 账号三个页签 | `loginDialog`、`qrPane`、`accountPane` |
-| `view_search.go` | 搜索页：热门搜索、直达卡片（歌手/专辑）+ 单曲/歌手/歌单/播客四个页签；单曲分页，歌手/歌单切到页签时才加载、按页追加；播客在新查询时与单曲并行搜索 | `searchPage`、`searchHeader`、`directCard`、`searchCover`、`foundSongs`/`foundSingers`/`foundPlaylists`/`foundPodcasts`、`foundGrid`/`foundEnd`、`singerCard`/`singerSide` |
+| `view_search.go` | 搜索页：热门搜索、直达卡片（歌手/专辑）+ 单曲/歌手/歌单/播客四个页签；单曲分页，歌手/歌单切到页签时才加载、按页追加；播客在新查询时与单曲并行搜索，登录后小宇宙官方的结果排在前（封面带「小宇宙」徽章） | `searchPage`、`searchHeader`、`directCard`、`searchCover`、`foundSongs`/`foundSingers`/`foundPlaylists`/`foundPodcasts`、`foundGrid`/`foundEnd`/`foundPodcastsEnd`、`singerCard`/`singerSide` |
 | `view_singer.go` | 歌手页：头部 + 歌曲/专辑两个页签 + 排序 + 分页加载 | `singerPage`、`singerBar`、`singerSongsEnd`、`albumRow`、`singerAlbumsEnd` |
 | `icons.go` | Lucide 风格 SVG 图标集合与应用 Logo | `icLogo`、`icon`/`filledIcon`、`icHome`…`icWeChat`、`icComment`/`icThumb`、`icFlame`/`icTrending`/`icStar` |
 | `images.go` | 图片异步下载、缩放、缓存、按帧淘汰；同时缓存图片主色 | `images`、`imageEntry`、`imageBudget`（48 MiB）、`newImages`、`frame`、`get`、`peek`、`color`、`shrink` |
@@ -50,10 +59,25 @@
 | `motion.go` | 页面/歌词/队列的进入退出动画、歌手页页签行级动画、首页「换一批」卡片刷新动画 | `pageOut`/`pageSpring`、`lyricsOut`/`lyricsSpring`、`queueOut`/`panelOut`/`sideSpring`、`appear`、`presence`、`tabMotion`、`cardOut`/`cardSpring`、`refreshMotion` |
 | `skeleton.go` | 各种加载骨架屏 | `skeleton`、`bone`、`bar`、`headingSkeleton`、`songCardsSkeleton`、`forYouSkeleton`、`playlistSkeleton`、`singerSkeleton`、`topChartsSkeleton`、`chipsSkeleton`、`songRowsSkeleton`、`listSkeleton`、`lyricsSkeleton`、`commentsSkeleton` |
 | `memory.go` | 延迟把 Go 堆内存归还系统 | `trimmer`、`trimDelay`（3s）、`soon` |
-| `app_test.go` | 无窗口 UI 测试与联网页面走查 | `fakePlatform`、`newTestApp`、`settle`、`shot`、`TestPages`、`TestLRC`、`TestModeMenu`、`TestQualityMenu`、`TestPlayModes`、`TestSearchSinger`、`TestDisplayName`、`TestRecent`、`TestSearchHistory`、`TestComments` |
+| `app_test.go` | 无窗口 UI 测试与联网页面走查 | `fakePlatform`、`newTestApp`、`settle`、`shot`、`TestPages`、`TestLRC`、`TestModeMenu`、`TestQualityMenu`、`TestSearchSinger`、`TestDisplayName`、`TestRecent`、`TestSearchHistory`、`TestComments` |
+| `behavior_test.go` | 离线特征测试（`offlineTransport` 让所有请求立即失败，不访问任何服务）：队列增删、四种模式切歌、失败跳过、音质徽章文字、持久化兼容（`testdata/v1.0.1/` 是 v1.0.1 写出的文件：仍可读、保存后可读回、`xyz.json` 迁移为 `xiaoyuzhou.json`、旧 `xyz_official` 生效、未知播放模式回退为默认）、猜你喜欢未登录时不改动原队列、搜索框作用域 | `newOfflineApp`、`drain`、`episodes`、`TestQueueEdits`、`TestNextPrev`、`TestPlayFailures`、`TestQualityLabel`、`TestPersistedFiles`、`TestPlayRadio`、`TestSearchScope`、`TestLogoutRadio`、`TestLikeRace`（`fakeLikes`：模拟服务端的「我喜欢」，控制读取的返回顺序）、`TestShowLabel` |
+| `zz_feed_test.go` | 一次性探针：用 `%AppData%` 中的真实凭证请求首页信息流；带 `//go:build probe`，只在 `-tags probe` 时编译 | `TestZZFeed` |
 | `podcast_test.go` | 小宇宙页、节目页、搜索结果的离线 UI 测试；我听过的节目跨次启动保存 | `TestPodcasts`、`TestSearchPodcastsTab` |
-| `xyz_test.go` | 小宇宙 beta 的离线 UI 测试：未登录、榜单/订阅、不登录 QQ 音乐播放单集、节目页、`xyz.json` 保存与退出 | `TestXyz` |
+| `xiaoyuzhou_test.go` | 小宇宙官方的离线 UI 测试：未登录、来源切换、推荐/分类/榜单/编辑精选/订阅、不登录 QQ 音乐播放单集、节目页滚到底加载、`xiaoyuzhou.json` 保存与退出 | `TestXiaoyuzhou` |
 | `palette_test.go` | 主色提取与 tint 的单元测试 | `TestDominantColor`、`TestTint` |
+
+## 2.1 `internal/playqueue`（播放队列规则）
+
+| 文件 | 职责 | 关键符号 |
+|---|---|---|
+| `queue.go` | 队列、当前位置、随机顺序、电台标记；四种模式下的下一首/上一首；增删时维护当前位置。无 IO，由 `app/playback.go` 编排播放器与保存 | `Mode`（`Loop`/`One`/`Shuffle`/`Order`，数值即 settings.json 的 `mode`）、`Step`（`None`/`Play`/`Replay`/`Stop`）、`Queue`（零值即空队列）、`Restore`（复制传入的切片）、`Songs`/`Cur`/`Current`、`Radio`/`SetRadio`、`Replace`、`Select`、`InsertNext`/`Append`/`AppendMissing`、`Remove`、`Clear`、`NearEnd`、`Next`、`Prev` |
+| `queue_test.go` | 表驱动单测：增删、续杯去重、四种模式、随机环绕、零值、不改动传入的切片 | `TestEdits`、`TestZero`、`TestOwnSongs`、`TestNearEnd`、`TestNext`、`TestShuffle` |
+
+## 2.2 `internal/store`（本地文件）
+
+| 文件 | 职责 | 关键符号 |
+|---|---|---|
+| `store.go` | 数据目录中的 JSON 文件：读、写（目录 0700、文件 0600，缩进或紧凑；先写 `.tmp` 再改名，崩溃不留截断文件；不 Sync，因为在 UI 线程上每次切歌都写）、删；路径为空时什么都不做（测试用）；写失败静默 | `Dir`、`Open`、`Load`、`Save`、`Remove` |
 
 ## 3. `internal/qqmusic`（接口层）
 
@@ -66,16 +90,16 @@
 | `lyric.go` | LRC 解析、翻译合并、按时间取行 | `LyricLine`、`ParseLRC`、`parseLRCLines`、`LineAt` |
 | `types.go` | 数据模型与展示辅助 | `Song`/`Singer`/`Album`/`File`/`Pay`、`Playlist`、`FeedShelf`、`Toplist`/`ToplistGroup`、`SingerInfo`、`FoundSinger`、`Direct`/`DirectKind`、`AlbumInfo`（`IsPodcast`）、`Episode`/`EpisodeSongs`、`Show`、`PodcastArea`/`PodcastShelf`、`User`、`Comment`/`CommentReply`、`Quality`（`AAC`/`Standard`/`High`/`Lossless`/`Best`）、`File.Best`/`File.Size`（各音质文件大小）、`songFile`/`File.files`（音源降级顺序）、`AlbumCover`/`SingerPhoto`、`Artists`/`DisplayName`/`VIP`/`Cover`/`Duration` |
 
-## 3.1 `internal/xyz`（小宇宙官方接口）
+## 3.1 `internal/xiaoyuzhou`（小宇宙官方接口）
 
 | 文件 | 职责 | 关键符号 |
 |---|---|---|
-| `client.go` | `api.xiaoyuzhoufm.com` 传输：iOS App 请求头（版本号常量 `appVersion`/`appBuild`）、`x-jike-access-token`、401 时用 refresh token 刷新一次并重试、网页抓取 | `Client`、`New`、`Credential`、`LoggedIn`/`Logout`、`Refreshed`、`APIError`、`ErrNotLoggedIn`、`call`/`send`/`refresh`、`page` |
-| `login.go` | 扫码登录（`accounts.xiaoyuzhoufm.com` 同款，走 `web-api.xiaoyuzhoufm.com`，无需验证码）：生成二维码 PNG、轮询；`CONFIRMED`/`USED` 都算登录成功，token 从响应头或 Cookie 取。手机号登录页地址与 token Cookie 名 | `QR`、`QRState`、`NewQR`、`PollQR`、`webPost`、`LoginPage`、`TokenCookie`/`RefreshCookie`、`SetTokens` |
-| `api.go` | 资料、榜单、编辑精选、订阅更新、我的订阅、节目、单集分页、搜索（过滤 HEADER/FOOTER）、付费音频、节目网页 `__NEXT_DATA__`（免登录，约 15 集） | `More`、`Profile`、`Top`、`Inbox`、`Subscriptions`、`Podcast`、`Episodes`、`Search`、`EditorPicks`、`PrivateMedia`、`WebPodcast` |
-| `feed.go` | App 首页信息流（按 `loadMoreKey` 逐页读：首页 → `topList` → `discoveryTopic` → `pick`，各模块单独解析，丢掉榜单/横幅/跳转）与分类（全部分类、分类页签、分类下节目分页） | `FeedItem`、`FeedSection`、`Feed`、`feedModule`、`Category`/`CategoryTab`、`Categories`、`CategoryTabs`、`CategoryPodcasts` |
-| `types.go` | 数据模型 | `Image`（`URL(side)`：150/300/800）、`User`、`Podcast`、`Episode`（`Audio`）、`TopCategory`、`TopList`、`Pick`/`PickDay`、`SearchKind` |
-| `xyz_test.go` / `live_test.go` | 离线解析测试；联网测试（网页 + 二维码，`-short` 跳过）；`XYZ_CRED=<xyz.json>` 时用真实登录逐个调一次接口 | `TestSearchItems`、`TestDeviceID`、`TestWeb`、`TestLive` |
+| `client.go` | `api.xiaoyuzhoufm.com` 传输：iOS App 请求头（`iPhone` 表，版本号在其中）、`x-jike-access-token`、401 时用 refresh token 换一次新 token 并重试；`request` 把 `data` 解码进调用方的类型并返回下一页游标；网页抓取 | `Client`、`New`、`Credential`、`LoggedIn`/`SetTokens`/`Logout`、`OnRefresh`、`Cursor`（`into`）、`APIError`、`ErrNotLoggedIn`、`request`/`send`/`setAppHeaders`/`renew`、`webPage` |
+| `login.go` | 扫码登录（与 `accounts.xiaoyuzhoufm.com` 相同，走 `web-api.xiaoyuzhoufm.com`，无需验证码）：生成二维码 PNG、轮询；`CONFIRMED`/`USED` 都算登录成功，token 从响应头或 Cookie 取。手机号登录页地址与 token Cookie 名 | `QR`、`QRState`、`NewQR`、`PollQR`、`postAccounts`、`LoginPage`、`TokenCookie`/`RefreshCookie` |
+| `api.go` | 资料、榜单、编辑精选、订阅更新、我的订阅、节目、单集分页、搜索（按 `type` 过滤 HEADER/FOOTER）、付费音频、节目网页 `__NEXT_DATA__`（免登录，约 15 集） | `Profile`、`Chart`、`EditorPicks`、`Inbox`、`Subscriptions`、`Podcast`、`Episodes`、`SearchPodcasts`/`SearchEpisodes`（`search`）、`PrivateMediaURL`、`WebPodcast` |
+| `discover.go` | App 首页信息流（按 `loadMoreKey` 逐页读：首页 → `topList` → `discoveryTopic` → `pick`，各模块单独解析，丢掉榜单/横幅/跳转与空模块）与分类（全部分类、分类页签、分类下节目分页） | `Discovery`、`recommended`、`moduleSections`、`Categories`、`CategoryTabs`、`CategoryPodcasts` |
+| `types.go` | 数据模型 | `Picture`（`URL(side)`：150/300/800）、`User`、`Podcast`、`Episode`（`AudioURL`、`Paid`）、`ChartKind`/`Chart`、`Pick`/`DayPicks`、`Entry`/`Section`、`Category`（分类与分类页签共用） |
+| `xiaoyuzhou_test.go` / `live_test.go` | 离线测试（`service` 假装服务端：搜索过滤与游标、token 续期、首页信息流解析、模型）；联网测试（网页 + 二维码，`-short` 跳过）；`XIAOYUZHOU_CRED=<xiaoyuzhou.json>` 时用真实登录逐个调一次接口 | `TestSearch`、`TestRenew`、`TestDiscovery`、`TestTypes`、`TestWeb`、`TestLive` |
 
 ## 4. `internal/player`（播放器）
 
@@ -103,6 +127,8 @@
 | `cmd/probe/main.go` | 对线上接口做冒烟验证；支持扫码登录、测播放地址 | `main`、`check` |
 | `resources/resources.go` | 嵌入 `logo.svg`、`icon-256.png`、`tray.png` | `LogoSVG`、`WindowIcon`、`TrayIcon` |
 | `resources/logo.svg`、`tray.svg` | 图标源文件；改完跑 `go run ./cmd/genicon` | — |
+| `.agents/skills/local-refactor/` | 重构 skill：开工前检查、阶段产物、本项目分层边界、单元执行循环与验证命令；方法论在 `references/refactor-playbook.md`（原 `REFACTOR.md`） | `local-refactor` |
+| `docs/refactor/` | 上一次重构的产物：审计、目标架构、路线图、决策记录、验证报告 | — |
 | `mygo.json` | `name` / `identifier` / `version` / `main` / `out`，打包脚本读取版本号 | — |
 | `qq音乐分析指南.md` | 推荐信息流（音乐盲盒 / 碎片时间 / 私荐歌单）的数据来源、分析方法、接口字段与实测结果 | — |
 | `小宇宙播客接口指南.md` | 小宇宙（Xiaoyuzhou FM）三条通道、鉴权与请求头、接口清单、返回字段、免登录网页通道与对接评估 | — |
@@ -114,16 +140,21 @@
 |---|---|
 | 整体布局、侧边栏、顶栏、窗口按钮 | `internal/app/view.go` |
 | 首页、音乐馆（排行榜/广场）、歌单表格 | `internal/app/view_pages.go` |
-| 搜索页的页签与结果 | `internal/app/view_search.go` + `app.go`（`runSearch`） |
+| 搜索页的页签与结果 | `internal/app/view_search.go` + `search.go`（`runSearch`） |
+| 搜索框在哪个页面搜什么（作用域） | `internal/app/search.go` 的 `searchScope` / `chooseSearch` |
 | 播放栏、进度/音量、歌词页、队列面板 | `internal/app/view_player.go` |
 | 歌曲评论（歌词页页签 + 右侧面板） | `internal/app/view_comments.go` + `internal/app/comments.go` |
 | 登录弹窗的显示与三个页签 | `internal/app/view_login.go` + `internal/app/login.go` |
 | 歌手页的页签/排序/分页 | `internal/app/view_singer.go` |
 | 小宇宙（播客）页、节目页、播客搜索（在小宇宙页时顶栏搜索框只搜播客、不给歌曲联想） | `internal/app/view_podcast.go` + `internal/app/podcast.go`；接口见 `docs/qq音乐内置小宇宙接口指南.md` |
-| 小宇宙页的来源切换（QQ音乐/官方徽章与切换按钮） | `internal/app/view.go` 的 `podcastTitle`；`internal/app/app.go` 的 `podcastHome`/`switchPodcasts`、`settings.XyzOfficial` |
-| 小宇宙 beta（官方接口、扫码登录、节目页） | `internal/app/view_xyz.go` + `internal/app/xyz.go`；接口在 `internal/xyz`，资料见 `docs/小宇宙播客接口指南.md` |
-| 队列行为、切歌、播放模式、音量 | `internal/app/playback.go` |
-| 页面数据加载、导航、搜索、我喜欢 | `internal/app/app.go` |
+| 小宇宙页的来源切换（QQ音乐/官方徽章与切换按钮） | `internal/app/view.go` 的 `podcastTitle`；`internal/app/nav.go` 的 `podcastHome`/`switchPodcasts`、`settings.XiaoyuzhouOfficial` |
+| 小宇宙官方（官方接口、扫码登录、节目页） | `internal/app/view_xiaoyuzhou.go` + `internal/app/xiaoyuzhou.go`；接口在 `internal/xiaoyuzhou`，资料见 `docs/小宇宙播客接口指南.md` |
+| 队列规则、切歌、播放模式 | `internal/playqueue/queue.go` |
+| 播放编排、音源、失败跳过、音量、音质徽章 | `internal/app/playback.go` |
+| 导航、新增页面的分派 | `internal/app/nav.go` |
+| 首页/音乐馆/歌单/专辑/歌手的加载 | `internal/app/library.go` |
+| 登录后的会话、我喜欢 | `internal/app/session.go` |
+| 设置项、持久化文件 | `internal/app/settings.go` + `internal/store` |
 | 接口地址/参数/返回字段 | `internal/qqmusic/api.go` + `types.go` |
 | 登录协议、扫码轮询、凭证刷新 | `internal/qqmusic/login.go` |
 | 缓冲、解码、seek | `internal/player/{buffer,decoder,flac,aac_windows,player}.go` |

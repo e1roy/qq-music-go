@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"qqmusic/internal/playqueue"
 	"qqmusic/internal/qqmusic"
 )
 
@@ -48,7 +49,7 @@ func (a *app) playerBar(c *ui.Context) {
 				a.singerLinks(c, s.Singers, 12)
 			})
 			// An episode of 小宇宙 is not QQ Music's to like.
-			if s.Source == "" {
+			if fromQQ(s) {
 				ic, col := icHeart, colMuted
 				if a.liked[int64(s.ID)] {
 					ic, col = icHeartOn, colAccent
@@ -116,25 +117,7 @@ func (a *app) playerBar(c *ui.Context) {
 			if a.playErr != "" {
 				ui.Icon(c, icAlert).FontSize(16).TextColor(colDanger).Tooltip(a.playErr).Padding(0, 6)
 			}
-			q := a.set.Quality.String()
-			// As the next song loads, it shows what the last one got, not
-			// the quality asked for, for it not to change back and forth.
-			if a.qualityKnown {
-				switch {
-				case a.gotQuality == qqmusic.AAC:
-					q = a.gotQuality.String() + "（无 MP3 音源）"
-				case a.askedQuality == qqmusic.Best || a.gotQuality >= a.askedQuality:
-					q = a.gotQuality.String()
-				case a.askedQuality == qqmusic.Lossless:
-					q = a.gotQuality.String() + "（无损不可用）"
-				default:
-					q = a.gotQuality.String() + "（无高品质）"
-				}
-			}
-			// An episode of 小宇宙 has the one file it has.
-			if ok && s.Source == xyzSource {
-				q = "小宇宙"
-			}
+			q := qualityLabel(a.set.Quality, a.qualityKnown, a.askedQuality, a.gotQuality, ok && isXiaoyuzhou(s))
 			tip := "音质"
 			if n := a.player.Size(); n > 0 {
 				tip = "音质 · 当前文件 " + formatSize(n)
@@ -197,13 +180,7 @@ func (a *app) playerBar(c *ui.Context) {
 					})
 					if row.Clicked() {
 						a.qualityOpen = false
-						if !on {
-							a.set.Quality = qq
-							a.saveSettings()
-							if hasSong {
-								a.toast("下一首起使用 " + qq.String())
-							}
-						}
+						a.setQuality(qq)
 					}
 				}
 			})
@@ -248,7 +225,7 @@ var modeIcons = [...]*ui.SVG{icRepeat, icRepeat1, icShuffle, icOrder}
 // of the modes, each with its icon, the one in use checked.
 func (a *app) modeButton(c *ui.Context) {
 	col := colMuted
-	if a.set.Mode != modeOrder {
+	if a.set.Mode != playqueue.Order {
 		col = colAccent
 	}
 	tip := a.set.Mode.String()
@@ -266,7 +243,7 @@ func (a *app) modeButton(c *ui.Context) {
 		panel.AttachTo(b, ui.AnchorTop, ui.AnchorBottom).Margin(0, 0, 8, 0).
 			Padding(4).Gap(2).Width(136).Radius(radiusLg).Background(colCard).Border(1, colLine).
 			Shadow(0, 8, 24, 0, colShadow)
-		for _, m := range []playMode{modeOrder, modeLoop, modeOne, modeShuffle} {
+		for _, m := range []playqueue.Mode{playqueue.Order, playqueue.Loop, playqueue.One, playqueue.Shuffle} {
 			on := m == a.set.Mode
 			row := ui.Row(c.Key(int(m))).Padding(7, 8).Gap(8).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 			if row.Hovered() {
@@ -394,7 +371,7 @@ func (a *app) nowPlayingPage(c *ui.Context) {
 					if s.Album.Name != "" {
 						ui.Row(c).MinWidth(0).AlignItems(ui.Center).Children(func() {
 							label := "专辑："
-							if s.Source == xyzSource {
+							if a.isEpisode(s) {
 								label = "节目："
 							}
 							ui.Text(c, label).FontSize(13).TextColor(colMuted).NoWrap()
@@ -497,16 +474,16 @@ func (a *app) queuePanel(c *ui.Context) {
 			ui.Row(c).Padding(12, 10, 12, 16).AlignItems(ui.Center).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(colLine).Children(func() {
 				ui.Column(c).Grow(1).Gap(1).Children(func() {
 					ui.Text(c, "播放队列").FontSize(14).FontWeight(600)
-					ui.Text(c, fmt.Sprintf("%d 首歌曲", len(a.queue))).FontSize(12).TextColor(colMuted)
+					ui.Text(c, fmt.Sprintf("%d 首歌曲", len(a.queue.Songs()))).FontSize(12).TextColor(colMuted)
 				})
-				if len(a.queue) > 0 && iconButton(c, icTrash, 16, colMuted, "清空").Clicked() {
+				if len(a.queue.Songs()) > 0 && iconButton(c, icTrash, 16, colMuted, "清空").Clicked() {
 					a.clearQueue()
 				}
 				if iconButton(c, icClose, 16, colMuted, "关闭").Clicked() {
 					a.showQueue = false
 				}
 			})
-			if len(a.queue) == 0 {
+			if len(a.queue.Songs()) == 0 {
 				ui.Column(c).Padding(32, 16).Gap(10).AlignItems(ui.Center).Children(func() {
 					ui.Box(c).Size(40, 40).Radius(radiusLg).Background(colHover).Center().Children(func() {
 						ui.Icon(c, icQueue).FontSize(20).TextColor(colText)
@@ -517,17 +494,17 @@ func (a *app) queuePanel(c *ui.Context) {
 				return
 			}
 			// The numbers are as wide as the longest, right aligned.
-			numWidth := float32(7*len(fmt.Sprint(len(a.queue))) + 2)
-			ui.List(c, &a.queueList, len(a.queue), func(i int) {
-				s := a.queue[i]
-				on := i == a.cur
+			numWidth := float32(7*len(fmt.Sprint(len(a.queue.Songs()))) + 2)
+			ui.List(c, &a.queueList, len(a.queue.Songs()), func(i int) {
+				s := a.queue.Songs()[i]
+				on := i == a.queue.Cur()
 				// Room above the first row and below the last, off the
 				// card's edges.
 				var top, bottom float32
 				if i == 0 {
 					top = 6
 				}
-				if i == len(a.queue)-1 {
+				if i == len(a.queue.Songs())-1 {
 					bottom = 6
 				}
 				row := ui.Row(c.Key(i)).Margin(top, 6, bottom, 6).Padding(6, 6, 6, 8).Gap(10).Radius(radiusMd).AlignItems(ui.Center)

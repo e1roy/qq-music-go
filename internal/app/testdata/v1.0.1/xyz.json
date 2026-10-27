@@ -1,0 +1,19 @@
+{
+  "credential": {
+    "access_token": "access",
+    "refresh_token": "refresh",
+    "device_id": "device"
+  },
+  "user": {
+    "uid": "",
+    "nickname": "听众",
+    "avatar": {
+      "picture": {
+        "picUrl": "",
+        "thumbnailUrl": "",
+        "smallPicUrl": "",
+        "middlePicUrl": ""
+      }
+    }
+  }
+}

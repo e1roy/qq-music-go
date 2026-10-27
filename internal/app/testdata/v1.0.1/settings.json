@@ -1,0 +1,16 @@
+{
+  "volume": 0.5,
+  "quality": 1,
+  "mode": 2,
+  "mine_closed": true,
+  "fav_closed": false,
+  "searches": [
+    "晴天"
+  ],
+  "win_x": 10,
+  "win_y": 20,
+  "win_width": 1100,
+  "win_height": 780,
+  "win_max": false,
+  "xyz_official": true
+}

@@ -844,7 +844,7 @@ go run ./cmd/zz_podcast "$env:AppData\QQMusicGo\credential.json"
 | `longradio.json` | `getRadioList` |
 | `album.json` | `GetAlbumDetail(albumMid)` |
 | `album_by_id.json` | `GetAlbumDetail(albumID)` |
-| `albumsongs.json` / `xyzsongs.json` | 单集分页（含 `listenCount` / `uploadTime`） |
+| `albumsongs.json` / `podcastsongs.json` | 单集分页（含 `listenCount` / `uploadTime`） |
 | `track.json` / `song_detail.json` | 单集详情 |
 | `singer.json` / `singer_albums.json` | 主播与主播的节目 |
 | `search.json` / `search_album.json` | 搜索（单曲 / 专辑） |

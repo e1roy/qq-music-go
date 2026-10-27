@@ -75,9 +75,9 @@ func theme() *ui.Theme {
 
 func (a *app) view(c *ui.Context) {
 	c.SetTheme(theme())
-	for _, m := range a.toasts {
-		c.Toast(m)
-	}
+	// Toasts are turned off: they popped up over the player bar. Messages are
+	// still recorded (a.toasts, which tests read), but dropped instead of
+	// drawn. Re-enable by calling c.Toast for each of them here.
 	a.toasts = nil
 	a.images.frame()
 	a.tick()
@@ -315,16 +315,15 @@ func ghostButton(c *ui.Context, ic *ui.SVG, enabled bool, tip string, spin bool)
 // below it what was searched before, or what the text may become.
 func (a *app) searchBox(c *ui.Context) {
 	s := &a.search
-	podcasts := a.current().kind == pagePodcast
-	xyzShown := a.current().kind == pageXyz
+	scope := a.searchScope()
 	box := ui.Row(c).Width(360).MinWidth(140).Height(32).Radius(radiusMd).Background(colInputBg).Border(1, colInput).PaddingX(10).Gap(8).AlignItems(ui.Center)
 	box.Children(func() {
 		ui.Icon(c, icSearch).FontSize(16).TextColor(colMuted)
 		placeholder, label := "搜索歌曲、歌手、专辑…", "搜索歌曲"
-		if podcasts {
+		switch scope {
+		case scopePodcasts:
 			placeholder, label = "搜索小宇宙的节目、单集…", "搜索播客"
-		}
-		if xyzShown {
+		case scopeXiaoyuzhou:
 			placeholder, label = "搜索小宇宙官方的节目、单集…", "搜索小宇宙"
 		}
 		in := ui.TextInputBase(c, &s.input).Placeholder(placeholder).Label(label).Grow(1).FontSize(14).FocusBind(&s.focus, true)
@@ -333,7 +332,7 @@ func (a *app) searchBox(c *ui.Context) {
 		// once it rests: what was chosen before is not what is typed.
 		if in.Changed() {
 			s.open, s.sel = true, -1
-			if !podcasts && !xyzShown {
+			if scope == scopeMusic {
 				a.suggestAsTyped(s.input)
 			}
 		}
@@ -382,11 +381,11 @@ func (a *app) searchBox(c *ui.Context) {
 				s.input, s.open, s.sel = "", true, -1
 				a.suggestAsTyped("")
 				// Cleared on 小宇宙, it goes back to the shelves.
-				if podcasts && a.podcast.search.query != "" {
+				if scope == scopePodcasts && a.podcast.search.query != "" {
 					a.searchPodcasts("")
 				}
-				if xyzShown && a.xyz.search.query != "" {
-					a.searchXyz("")
+				if scope == scopeXiaoyuzhou && a.xiaoyuzhou.search.query != "" {
+					a.searchXiaoyuzhou("")
 				}
 			}
 		}
@@ -436,10 +435,10 @@ func (a *app) searchMenu(c *ui.Context, anchor ui.Element) {
 			return
 		}
 		label := "搜索 “" + q + "”"
-		switch a.current().kind {
-		case pagePodcast:
+		switch a.searchScope() {
+		case scopePodcasts:
 			label = "在小宇宙中搜索 “" + q + "”"
-		case pageXyz:
+		case scopeXiaoyuzhou:
 			label = "在小宇宙官方中搜索 “" + q + "”"
 		}
 		if row("query "+q, -1, label, icSearch).Clicked() {
@@ -628,7 +627,7 @@ func badge(c *ui.Context, label string, col ui.Color) ui.Element {
 // as a footnote mark, and beside it a quiet button to the other one.
 func (a *app) podcastTitle(c *ui.Context) {
 	source, other := "QQ音乐", "切换到小宇宙官方"
-	if a.set.XyzOfficial {
+	if a.set.XiaoyuzhouOfficial {
 		source, other = "官方", "切换到 QQ 音乐的小宇宙"
 	}
 	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
@@ -661,7 +660,7 @@ func (a *app) sidebar(c *ui.Context) {
 			if navItem(c, icCompass, "音乐馆", cur.kind == pageDiscover || cur.kind == pageToplist).Clicked() {
 				a.navigate(page{kind: pageDiscover})
 			}
-			if navItem(c, icPodcast, "小宇宙", cur.kind == pagePodcast || cur.kind == pageXyz || cur.kind == pageXyzShow || cur.kind == pageXyzCategory).Clicked() {
+			if navItem(c, icPodcast, "小宇宙", cur.kind == pagePodcast || cur.kind == pageXiaoyuzhou || cur.kind == pageXiaoyuzhouShow || cur.kind == pageXiaoyuzhouCategory).Clicked() {
 				a.navigate(a.podcastHome())
 			}
 			if navItem(c, icSearch, "搜索", cur.kind == pageSearch).Clicked() {

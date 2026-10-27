@@ -1,3 +1,5 @@
+//go:build probe
+
 // Command zz_podcast is a local, throwaway probe of QQ Music's long audio
 // (podcast) APIs. It dumps raw JSON so the shapes can be written down.
 package main
@@ -139,7 +141,7 @@ func main() {
 	d, errs, err = c.CallMany(ctx, qqmusic.Web, nil, map[string]qqmusic.Req{
 		"req": {"music.musichallAlbum.AlbumSongList", "GetAlbumSongList", map[string]any{"albumMid": "002JAF3D0nJ33K", "begin": 0, "num": 3, "order": 2}},
 	})
-	dump("xyzsongs", d["req"], first(err, errs["req"]))
+	dump("podcastsongs", d["req"], first(err, errs["req"]))
 
 	// 17. Whether the song detail carries any episode text.
 	d, errs, err = c.CallMany(ctx, qqmusic.Web, nil, map[string]qqmusic.Req{
@@ -152,7 +154,7 @@ func main() {
 	// 18. The playback URL of an episode that only has a 128k MP3.
 	s = qqmusic.Song{ID: 348867947, Type: 0, Mid: "0004Xnzp48B0ox", File: qqmusic.File{Size128: 1, MediaMid: "0004Xnzp48B0ox"}}
 	u, got, err = c.SongURL(ctx, s, qqmusic.Best)
-	fmt.Printf("%-24s %v %v %v\n", "xyz episode url", got, u, err)
+	fmt.Printf("%-24s %v %v %v\n", "podcast episode url", got, u, err)
 }
 
 func first(a, b error) error {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"qqmusic/internal/playqueue"
 	"qqmusic/internal/qqmusic"
 )
 
@@ -20,7 +21,7 @@ type fakePlatform struct{ posts chan func() }
 func (f *fakePlatform) Post(fn func())                          { f.posts <- fn }
 func (f *fakePlatform) WebViewAvailable() bool                  { return true }
 func (f *fakePlatform) OpenQQLogin(done func([]*cookie, error)) { go done(nil, errLoginClosed) }
-func (f *fakePlatform) OpenXyzLogin(done func(access, refresh string, err error)) {
+func (f *fakePlatform) OpenXiaoyuzhouLogin(done func(access, refresh string, err error)) {
 	go done("", "", errLoginClosed)
 }
 func (f *fakePlatform) Minimize()       {}
@@ -157,13 +158,13 @@ func TestPages(t *testing.T) {
 
 	// The playlists found are in a tab of their own, which loads as it
 	// shows.
-	if a.search.pls.page != 0 || a.search.pls.loading {
+	if a.search.pls.pages != 0 || a.search.pls.loading {
 		t.Error("playlists load before their tab shows")
 	}
 	if err := tt.Click("歌单"); err != nil {
 		t.Fatal(err)
 	}
-	settle(tt, f, 20*time.Second, func() bool { return a.search.pls.page > 0 || a.search.pls.err != "" })
+	settle(tt, f, 20*time.Second, func() bool { return a.search.pls.pages > 0 || a.search.pls.err != "" })
 	if len(a.search.pls.items) == 0 {
 		t.Fatalf("search playlists: %q", a.search.pls.err)
 	}
@@ -191,7 +192,7 @@ func TestPages(t *testing.T) {
 	if err := tt.Click("歌手"); err != nil {
 		t.Fatal(err)
 	}
-	settle(tt, f, 20*time.Second, func() bool { return a.search.singers.page > 0 || a.search.singers.err != "" })
+	settle(tt, f, 20*time.Second, func() bool { return a.search.singers.pages > 0 || a.search.singers.err != "" })
 	if len(a.search.singers.items) == 0 {
 		t.Fatalf("search singers: %q", a.search.singers.err)
 	}
@@ -244,8 +245,8 @@ func TestPages(t *testing.T) {
 	}
 
 	// The now-playing page and the queue, with a song in the queue.
-	a.queue, a.cur = a.search.songs, 0
-	a.loadLyrics(a.queue[0])
+	a.queue = playqueue.Restore(a.search.songs, 0, false)
+	a.loadLyrics(a.search.songs[0])
 	a.showLyrics, a.showQueue = true, true
 	settle(tt, f, 20*time.Second, func() bool { return a.lyrics != nil })
 	if len(a.lyrics) < 5 {
@@ -267,7 +268,7 @@ func TestLRC(t *testing.T) {
 // TestModeMenu chooses a play mode from the menu above its button.
 func TestModeMenu(t *testing.T) {
 	a, tt, _ := newTestApp(t)
-	a.set.Mode = modeLoop
+	a.set.Mode = playqueue.Loop
 	tt.Frame()
 	if tt.HasText("单曲循环") {
 		t.Fatal("the menu shows before a click")
@@ -276,7 +277,7 @@ func TestModeMenu(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	for m := range playMode(4) {
+	for m := range playqueue.Mode(4) {
 		if !tt.HasText(m.String()) {
 			t.Errorf("no %s in %q", m, tt.Texts())
 		}
@@ -286,7 +287,7 @@ func TestModeMenu(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.set.Mode != modeOne || a.modeOpen {
+	if a.set.Mode != playqueue.One || a.modeOpen {
 		t.Errorf("mode %s, open %v", a.set.Mode, a.modeOpen)
 	}
 }
@@ -297,8 +298,7 @@ func TestQualityMenu(t *testing.T) {
 	if a.set.Quality != qqmusic.Best {
 		t.Fatalf("default quality %v", a.set.Quality)
 	}
-	a.queue = []qqmusic.Song{{Mid: "x", Name: "晴天", File: qqmusic.File{Size128: 4317292, Size320: 10792943, SizeFlac: 55397039}}}
-	a.cur = 0
+	a.queue = playqueue.Restore([]qqmusic.Song{{Mid: "x", Name: "晴天", File: qqmusic.File{Size128: 4317292, Size320: 10792943, SizeFlac: 55397039}}}, 0, false)
 	tt.Frame()
 	if tt.HasText("HQ 320k") {
 		t.Fatal("the menu shows before a click")
@@ -319,25 +319,6 @@ func TestQualityMenu(t *testing.T) {
 	tt.Frame()
 	if a.set.Quality != qqmusic.High || a.qualityOpen {
 		t.Errorf("quality %v after choosing HQ, open %v", a.set.Quality, a.qualityOpen)
-	}
-}
-
-func TestPlayModes(t *testing.T) {
-	a, _, _ := newTestApp(t)
-	a.queue = make([]qqmusic.Song, 4)
-	a.cur = 3
-	a.set.Mode = modeLoop
-	if next := (a.cur + 1) % len(a.queue); next != 0 {
-		t.Fatal(next)
-	}
-	a.reshuffle()
-	seen := map[int]bool{}
-	for range 4 {
-		a.cur = a.shuffleStep(1)
-		seen[a.cur] = true
-	}
-	if len(seen) != 4 {
-		t.Errorf("shuffle visited %v", seen)
 	}
 }
 
@@ -368,8 +349,8 @@ func TestSearchSinger(t *testing.T) {
 		}
 		seen[p.ID] = true
 	}
-	if a.search.pls.page != 4 {
-		t.Errorf("playlists at page %d", a.search.pls.page)
+	if a.search.pls.pages != 4 {
+		t.Errorf("playlists at page %d", a.search.pls.pages)
 	}
 
 	// Turning the pages of the songs, back to the first, keeps the
@@ -546,16 +527,15 @@ func TestRecent(t *testing.T) {
 	}
 
 	// The queue comes back whole, at the song it was on.
-	b.queue = []qqmusic.Song{{Mid: "a"}, {Mid: "b"}, {Mid: "c"}}
-	b.cur = 1
+	b.queue = playqueue.Restore([]qqmusic.Song{{Mid: "a"}, {Mid: "b"}, {Mid: "c"}}, 1, false)
 	b.enqueue(qqmusic.Song{Mid: "d"})
 	c := newApp(f, dir)
-	if len(c.queue) != 4 || c.queue[3].Mid != "d" || c.cur != 1 || len(c.shuffled) != 4 {
-		t.Fatalf("queue: %d songs at %d", len(c.queue), c.cur)
+	if songs := c.queue.Songs(); len(songs) != 4 || songs[3].Mid != "d" || c.queue.Cur() != 1 {
+		t.Fatalf("queue: %d songs at %d", len(songs), c.queue.Cur())
 	}
 	c.clearQueue()
-	if d := newApp(f, dir); len(d.queue) != 1 || d.queue[0].Mid != "50" {
-		t.Fatalf("cleared queue: %d songs", len(d.queue))
+	if d := newApp(f, dir); len(d.queue.Songs()) != 1 || d.queue.Songs()[0].Mid != "50" {
+		t.Fatalf("cleared queue: %d songs", len(d.queue.Songs()))
 	}
 
 	tt := ui.NewTester(b.view, 1280, 820)
@@ -710,8 +690,8 @@ func TestQueueClose(t *testing.T) {
 // queue, without the network: the comments are there already.
 func TestComments(t *testing.T) {
 	a, tt, _ := newTestApp(t)
-	a.queue, a.cur = []qqmusic.Song{{ID: 97773, Mid: "0039MnYb0qxYhV", Name: "晴天"}}, 0
-	a.lyrics, a.lyricsFor = []qqmusic.LyricLine{{At: -1, Text: "故事的小黄花"}}, a.queue[0].Mid
+	a.queue = playqueue.Restore([]qqmusic.Song{{ID: 97773, Mid: "0039MnYb0qxYhV", Name: "晴天"}}, 0, false)
+	a.lyrics, a.lyricsFor = []qqmusic.LyricLine{{At: -1, Text: "故事的小黄花"}}, "0039MnYb0qxYhV"
 	a.comments.song, a.comments.total = 97773, 339387
 	a.comments.lists[qqmusic.HotComments] = commentList{loaded: true, items: []qqmusic.Comment{
 		{ID: "1", Nick: "十九八七", Content: "等到专辑的那天也许我会比较好一点", Likes: 22362, Replies: 165,

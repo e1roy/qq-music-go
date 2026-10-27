@@ -1,4 +1,26 @@
 /build/
 /.mygo/
 mygo_windows_*.syso
+
+# 账号凭证 / token / cookie：运行时写在 %AppData%\QQMusicGo，这里防止手误复制进仓库
 /cred.json
+cred*.json
+token*.json
+cookie*.json
+xiaoyuzhou.json
+xyz.json
+*.token
+*.cookie
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# 持久化兼容测试的固件是脱敏假数据（musicid=12345、musickey=key），必须能提交
+!internal/app/testdata/**

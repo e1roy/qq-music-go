@@ -145,7 +145,7 @@ func (a *app) podcastResults(c *ui.Context) {
 // podcastEnd is the end of what a tab of the search of 小宇宙 found: its
 // bones as it loads, what went wrong, nothing found, or more to load. A
 // page may find none of the podcasts' while pages follow.
-func podcastEnd[T any](c *ui.Context, f *podcastFound[T], what string, more func(), bones func(rows int)) {
+func podcastEnd[T any](c *ui.Context, f *pager[T], what string, more func(), bones func(rows int)) {
 	switch {
 	case f.loading:
 		rows := 1
@@ -159,7 +159,7 @@ func podcastEnd[T any](c *ui.Context, f *podcastFound[T], what string, more func
 		ui.Column(c).Padding(8).Gap(8).AlignItems(ui.Center).Children(func() {
 			label := "加载更多" + what
 			if len(f.items) == 0 {
-				ui.Text(c, "前 "+fmt.Sprint(f.page)+" 页没有找到相关"+what).FontSize(13).TextColor(colMuted)
+				ui.Text(c, "前 "+fmt.Sprint(f.pages)+" 页没有找到相关"+what).FontSize(13).TextColor(colMuted)
 				label = "继续查找"
 			}
 			if button(c, outline, nil, label).Clicked() {

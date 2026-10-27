@@ -70,9 +70,10 @@ func (a *app) searchHeader(c *ui.Context) {
 			case s.tab == foundPlaylists && s.pls.total > 0:
 				sum = fmt.Sprintf("共找到 %d 个歌单", s.pls.total)
 			// Of what the search finds, the podcasts are only some: how
-			// many in all is not known.
-			case s.tab == foundPodcasts && len(s.podcasts.items) > 0:
-				sum = fmt.Sprintf("找到 %d 个播客", len(s.podcasts.items))
+			// many in all is not known. Those of 小宇宙 are counted with
+			// QQ Music's, as they are shown.
+			case s.tab == foundPodcasts && len(s.podcasts.items)+len(s.xiaoyuzhouShows.items) > 0:
+				sum = fmt.Sprintf("找到 %d 个播客", len(s.podcasts.items)+len(s.xiaoyuzhouShows.items))
 			}
 			if sum != "" {
 				ui.Text(c, sum).FontSize(13).TextColor(colMuted)
@@ -184,8 +185,8 @@ func (a *app) foundSingers(c *ui.Context) {
 	}
 	a.tint.aim(c, a.pageTint(a.searchCover(cover)))
 	cols := a.columns(c, 160)
-	card := func(sg qqmusic.FoundSinger) { a.singerCard(c, sg) }
-	foundGrid(a, c, &f.list, f.items, cols, card, func() {
+	card := func(i int) { a.singerCard(c, f.items[i]) }
+	foundGrid(a, c, &f.list, len(f.items), cols, card, func() {
 		foundEnd(c, f, "歌手", a.searchSingers, func(rows int) { singerSkeleton(c, cols, rows) })
 	})
 }
@@ -199,35 +200,90 @@ func (a *app) foundPlaylists(c *ui.Context) {
 	}
 	a.tint.aim(c, a.pageTint(a.searchCover(cover)))
 	cols := a.columns(c, 190)
-	card := func(p qqmusic.Playlist) {
+	card := func(i int) {
+		p := f.items[i]
 		a.playlistCard(c, p, page{kind: pagePlaylist, id: p.ID, title: p.Title}, p.Title, p.Creator, p.Cover, p.PlayCount)
 	}
-	foundGrid(a, c, &f.list, f.items, cols, card, func() {
+	foundGrid(a, c, &f.list, len(f.items), cols, card, func() {
 		foundEnd(c, f, "歌单", a.searchPlaylists, func(rows int) { playlistSkeleton(c, cols, rows) })
 	})
 }
 
 // foundPodcasts is the tab of the podcasts found, searched beside the
-// songs: those the search goes straight to, then the albums found that are
-// podcasts.
+// songs: those of 小宇宙 when logged in, which come first, then the albums
+// of QQ Music's that are podcasts.
 func (a *app) foundPodcasts(c *ui.Context) {
-	f := &a.search.podcasts
+	s := &a.search
+	xz, qq := s.xiaoyuzhouShows.items, s.podcasts.items
 	cover := ""
-	if len(f.items) > 0 {
-		cover = f.items[0].Cover
+	switch {
+	case len(xz) > 0:
+		cover = xz[0].Image.URL(300)
+	case len(qq) > 0:
+		cover = qq[0].Cover
 	}
 	a.tint.aim(c, a.pageTint(a.searchCover(cover)))
 	cols := a.columns(c, 170)
-	card := func(sh qqmusic.Show) { a.showCard(c, sh) }
-	foundGrid(a, c, &f.list, f.items, cols, card, func() {
-		podcastEnd(c, f, "播客", a.morePodcastsFound, func(rows int) { playlistSkeleton(c, cols, rows) })
+	card := func(i int) {
+		if i < len(xz) {
+			a.xiaoyuzhouShowCard(c, xz[i], "", true)
+		} else {
+			a.showCard(c, qq[i-len(xz)])
+		}
+	}
+	// The list scrolls by the pager of QQ Music's podcasts, as it did
+	// before 小宇宙's came beside them.
+	foundGrid(a, c, &s.podcasts.list, len(xz)+len(qq), cols, card, func() {
+		a.foundPodcastsEnd(c, cols)
 	})
 }
 
-// foundGrid shows what a tab found as rows of cards, cols in a row, below
-// the header, in one virtual list scrolled by ls, and then end.
-func foundGrid[T any](a *app, c *ui.Context, ls *ui.ListState, items []T, cols int, card func(T), end func()) {
-	rows := (len(items) + cols - 1) / cols
+// foundPodcastsEnd is the end of the 播客 tab: its bones as either service
+// loads, what went wrong with each, with more to load from the other, or
+// nothing found. A page of QQ Music's may hold none of its podcasts while
+// pages follow.
+func (a *app) foundPodcastsEnd(c *ui.Context, cols int) {
+	s := &a.search
+	qq, xz := &s.podcasts, &s.xiaoyuzhouShows
+	n := len(qq.items) + len(xz.items)
+	if qq.loading || xz.loading {
+		rows := 1
+		if n == 0 {
+			rows = 3
+		}
+		skeleton(c, func() { playlistSkeleton(c, cols, rows) })
+		return
+	}
+	if xz.err != "" {
+		errorRow(c, xz.err, a.moreXiaoyuzhouPodcastsFound)
+	}
+	if qq.err != "" {
+		errorRow(c, qq.err, a.morePodcastsFound)
+	}
+	switch {
+	case qq.err == "" && qq.more || xz.err == "" && xz.more:
+		ui.Column(c).Padding(8).Gap(8).AlignItems(ui.Center).Children(func() {
+			label := "加载更多播客"
+			if n == 0 {
+				if qq.more {
+					ui.Text(c, "前 "+fmt.Sprint(qq.pages)+" 页没有找到相关播客").FontSize(13).TextColor(colMuted)
+				}
+				label = "继续查找"
+			}
+			if button(c, outline, nil, label).Clicked() {
+				a.moreFoundPodcasts()
+			}
+		})
+	case n == 0 && qq.err == "" && xz.err == "":
+		ui.Text(c, "暂无播客").TextColor(colMuted).Padding(24, 0)
+	}
+}
+
+// foundGrid shows the n cards a tab found, card building the i-th, as rows
+// of cols below the header, in one virtual list scrolled by ls, and then
+// end.
+func foundGrid(a *app, c *ui.Context, ls *ui.ListState, n, cols int, card func(i int), end func()) {
+	rows := (n + cols - 1) / cols
 	ui.List(c, ls, 1+rows+1, func(i int) {
 		switch {
 		case i == 0:
@@ -235,8 +291,8 @@ func foundGrid[T any](a *app, c *ui.Context, ls *ui.ListState, items []T, cols i
 		case i <= rows:
 			r := i - 1
 			ui.Grid(c).Columns(cols).Gap(12).Padding(0, 24, 12, 24).Children(func() {
-				for _, it := range items[r*cols : min(len(items), (r+1)*cols)] {
-					card(it)
+				for i := r * cols; i < min(n, (r+1)*cols); i++ {
+					card(i)
 				}
 			})
 		default:
@@ -247,7 +303,7 @@ func foundGrid[T any](a *app, c *ui.Context, ls *ui.ListState, items []T, cols i
 
 // foundEnd is the end of what a tab found: its bones as it loads, what
 // went wrong, nothing found, or more to load.
-func foundEnd[T any](c *ui.Context, f *found[T], what string, more func(), bones func(rows int)) {
+func foundEnd[T any](c *ui.Context, f *pager[T], what string, more func(), bones func(rows int)) {
 	switch {
 	case f.loading:
 		rows := 1
@@ -259,7 +315,7 @@ func foundEnd[T any](c *ui.Context, f *found[T], what string, more func(), bones
 		errorRow(c, f.err, more)
 	case len(f.items) == 0:
 		ui.Text(c, "暂无"+what).TextColor(colMuted).Padding(24, 0)
-	case len(f.items) < f.total:
+	case f.more:
 		ui.Row(c).Justify(ui.Center).Padding(8).Children(func() {
 			if button(c, outline, nil, "加载更多"+what).Clicked() {
 				more()

@@ -2,14 +2,11 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
 	"strings"
 
-	"github.com/egoist/mygo/ui"
-
 	"qqmusic/internal/qqmusic"
+	"qqmusic/internal/xiaoyuzhou"
 )
 
 // podcasts is 小宇宙: QQ Music's podcasts, which need no login to browse,
@@ -39,22 +36,9 @@ const heardMax = 30
 // makes it while 小宇宙 is shown.
 type podcastSearch struct {
 	query    string
-	tab      int // 0 shows, 1 episodes
-	shows    podcastFound[qqmusic.Show]
-	episodes podcastFound[qqmusic.Song]
-}
-
-// podcastFound is shows or episodes found, page the last page loaded. Of
-// what the search finds, only the podcasts' are kept, so that a page may
-// add none: more says whether pages follow.
-type podcastFound[T any] struct {
-	items   []T
-	page    int
-	more    bool
-	loading bool
-	err     string
-	gen     int
-	list    ui.ListState // as the search page's tab, which scrolls by itself
+	tab      int                 // 0 shows, 1 episodes
+	shows    pager[qqmusic.Show] // of the podcasts' only: a page may add none while pages follow
+	episodes pager[qqmusic.Song]
 }
 
 // The pages of a search of podcasts: albums are fewer than songs, and
@@ -132,12 +116,20 @@ func (a *app) morePicks() {
 	})
 }
 
+// qqEpisode reports whether s is an episode of a podcast of QQ Music's, as
+// far as the app has seen its album.
+func (a *app) qqEpisode(s qqmusic.Song) bool { return a.podcast.known[s.Album.Mid] }
+
+// isEpisode reports whether s is an episode, of QQ Music's podcasts or of
+// 小宇宙: its album is a show, 节目.
+func (a *app) isEpisode(s qqmusic.Song) bool { return a.qqEpisode(s) || isXiaoyuzhou(s) }
+
 // recentEpisodes is the episodes of 最近播放 that are podcasts', the last
 // played first.
 func (a *app) recentEpisodes(n int) []qqmusic.Song {
 	var eps []qqmusic.Song
 	for _, s := range a.recent {
-		if a.podcast.known[s.Album.Mid] && len(eps) < n {
+		if a.qqEpisode(s) && len(eps) < n {
 			eps = append(eps, s)
 		}
 	}
@@ -148,23 +140,16 @@ func (a *app) recentEpisodes(n int) []qqmusic.Song {
 // 节目, which keeps what was known of it.
 func (a *app) hearShow(s qqmusic.Song) {
 	sh := qqmusic.Show{Mid: s.Album.Mid, Title: s.Album.Name, Host: s.Artists(), Cover: qqmusic.AlbumCover(s.Album.Mid, 300)}
-	heard := make([]qqmusic.Show, 1, heardMax)
 	for _, h := range a.podcast.heard {
-		switch {
-		case h.Mid == sh.Mid:
-			if h.Episodes > 0 {
-				sh.Episodes = h.Episodes
-			}
-		case len(heard) < heardMax:
-			heard = append(heard, h)
+		if h.Mid == sh.Mid && h.Episodes > 0 {
+			sh.Episodes = h.Episodes
 		}
 	}
 	// What a show's page knows of it.
 	if l := a.lists[page{kind: pageAlbum, mid: sh.Mid}]; l != nil && l.total > 0 {
 		sh.Episodes = l.total
 	}
-	heard[0] = sh
-	a.podcast.heard = heard
+	a.podcast.heard = pushFront(a.podcast.heard, sh, heardMax, func(a, b qqmusic.Show) bool { return a.Mid == b.Mid })
 	a.saveHeard()
 }
 
@@ -175,16 +160,11 @@ func (a *app) clearHeard() {
 }
 
 func (a *app) saveHeard() {
-	if a.dir == "" {
-		return
-	}
 	if len(a.podcast.heard) == 0 {
-		os.Remove(a.path("podcasts.json"))
+		a.store.Remove(fileHeard)
 		return
 	}
-	os.MkdirAll(a.dir, 0o700)
-	b, _ := json.Marshal(a.podcast.heard)
-	os.WriteFile(a.path("podcasts.json"), b, 0o600)
+	a.store.Save(fileHeard, a.podcast.heard, false)
 }
 
 // searchPodcasts searches 小宇宙 for q, loading the tab shown; an empty q
@@ -192,8 +172,8 @@ func (a *app) saveHeard() {
 func (a *app) searchPodcasts(q string) {
 	s := &a.podcast.search
 	s.query = strings.TrimSpace(q)
-	s.shows = podcastFound[qqmusic.Show]{gen: s.shows.gen + 1}
-	s.episodes = podcastFound[qqmusic.Song]{gen: s.episodes.gen + 1}
+	s.shows.reset()
+	s.episodes.reset()
 	a.main.Y = 0
 	a.loadPodcastTab()
 }
@@ -210,9 +190,9 @@ func (a *app) loadPodcastTab() {
 	s := &a.podcast.search
 	switch {
 	case s.query == "":
-	case s.tab == 0 && s.shows.page == 0 && !s.shows.loading:
+	case s.tab == 0 && s.shows.pages == 0 && !s.shows.loading:
 		a.moreShows()
-	case s.tab == 1 && s.episodes.page == 0 && !s.episodes.loading:
+	case s.tab == 1 && s.episodes.pages == 0 && !s.episodes.loading:
 		a.moreEpisodes()
 	}
 }
@@ -242,21 +222,10 @@ func (a *app) moreEpisodes() {
 // podcastMore loads the next page of what f found for q, adding what it
 // has not yet: pages may overlap. ids gives an item's key, and the mid of
 // its podcast, which it makes known.
-func podcastMore[T any](a *app, f *podcastFound[T], q string, load func(ctx context.Context, q string, pg int) ([]T, bool, error), ids func(T) (key, album string)) {
-	pg := f.page + 1
-	f.loading, f.err = true, ""
-	f.gen++
-	gen := f.gen
-	a.do(func(ctx context.Context) func() {
+func podcastMore[T any](a *app, f *pager[T], q string, load func(ctx context.Context, q string, pg int) ([]T, bool, error), ids func(T) (key, album string)) {
+	loadPage(a, f, errText, func(ctx context.Context, pg int, _ xiaoyuzhou.Cursor) (func(), error) {
 		items, more, err := load(ctx, q, pg)
 		return func() {
-			if gen != f.gen {
-				return
-			}
-			f.loading, f.err = false, errText(err)
-			if err != nil {
-				return
-			}
 			seen := make(map[string]bool, len(f.items))
 			for _, it := range f.items {
 				k, _ := ids(it)
@@ -270,7 +239,7 @@ func podcastMore[T any](a *app, f *podcastFound[T], q string, load func(ctx cont
 					f.items = append(f.items, it)
 				}
 			}
-			f.page, f.more = pg, more
-		}
+			f.more = more
+		}, err
 	})
 }

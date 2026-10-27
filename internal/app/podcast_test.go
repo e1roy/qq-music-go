@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 
 	"qqmusic/internal/qqmusic"
+	"qqmusic/internal/xiaoyuzhou"
 )
 
 // TestPodcasts shows 小宇宙, a podcast's page and a search of podcasts
@@ -56,6 +58,8 @@ func TestPodcasts(t *testing.T) {
 	}
 
 	tt := ui.NewTester(a.view, 1280, 2400)
+	// 小宇宙 opens 小宇宙's own podcasts unless QQ Music's are chosen.
+	a.set.XiaoyuzhouOfficial = false
 	if err := tt.Click("小宇宙"); err != nil {
 		t.Fatal(err)
 	}
@@ -91,8 +95,8 @@ func TestPodcasts(t *testing.T) {
 	// What a search found, and a tab that found none.
 	a.navigate(page{kind: pagePodcast, title: "小宇宙"})
 	pc.search.query = "日谈"
-	pc.search.shows = podcastFound[qqmusic.Show]{items: []qqmusic.Show{{ID: 1, Mid: "rt", Title: "日谈公园", Host: "日谈公园", Episodes: 839}}, page: 1}
-	pc.search.episodes = podcastFound[qqmusic.Song]{page: 1}
+	pc.search.shows = pager[qqmusic.Show]{items: []qqmusic.Show{{ID: 1, Mid: "rt", Title: "日谈公园", Host: "日谈公园", Episodes: 839}}, pages: 1}
+	pc.search.episodes = pager[qqmusic.Song]{pages: 1}
 	tt.Frame()
 	if !tt.HasText("日谈公园") || !tt.HasText("839 集 · 日谈公园") || tt.HasText("近期热点") {
 		t.Errorf("found shows: %q", tt.Texts())
@@ -162,7 +166,7 @@ func TestSearchPodcastsTab(t *testing.T) {
 
 	// The next page of songs keeps them; showing their tab after a failure
 	// tries again.
-	s.podcasts = podcastFound[qqmusic.Show]{page: 1, items: []qqmusic.Show{{Mid: "003DKRD82GxqiR", Title: "来都来了 | 听了再走", Episodes: 283}}}
+	s.podcasts = pager[qqmusic.Show]{pages: 1, items: []qqmusic.Show{{Mid: "003DKRD82GxqiR", Title: "来都来了 | 听了再走", Episodes: 283}}}
 	a.runSearch("来都来了", 2)
 	if len(s.podcasts.items) != 1 || s.podcasts.loading {
 		t.Fatalf("songs' page 2: %+v", s.podcasts)
@@ -183,5 +187,72 @@ func TestSearchPodcastsTab(t *testing.T) {
 	a.runSearch("日谈公园", 1)
 	if len(s.podcasts.items) != 0 || !s.podcasts.loading {
 		t.Fatalf("new query: %+v", s.podcasts)
+	}
+}
+
+// TestSearchPodcastsTabBesideXiaoyuzhou shows the podcasts of 小宇宙 first on the
+// 播客 tab of a search, beside those of QQ Music's, and counted with them.
+func TestSearchPodcastsTabBesideXiaoyuzhou(t *testing.T) {
+	a, tt, f := newTestApp(t)
+	a.api.HTTP = &http.Client{Transport: offline{}}
+	a.images = newImages(func(context.Context, string) ([]byte, error) { return nil, errors.New("offline") }, f.Post, a.trim.soon)
+	s := &a.search
+	a.runSearch("大医来了", 1)
+	settle(tt, f, 5*time.Second, func() bool { return !s.loading && !s.podcasts.loading })
+
+	s.xiaoyuzhouShows = pager[xiaoyuzhou.Podcast]{pages: 1, items: []xiaoyuzhou.Podcast{
+		{Pid: "64abcdef", Title: "日谈公园", Author: "李叔", EpisodeCount: 12},
+	}}
+	s.podcasts = pager[qqmusic.Show]{pages: 1, items: []qqmusic.Show{
+		{Mid: "003DKRD82GxqiR", Title: "来都来了 | 听了再走", Episodes: 283},
+	}}
+	a.showSearchTab(foundPodcasts)
+	tt.Frame()
+
+	texts := tt.Texts()
+	xzAt, qqAt := slices.Index(texts, "日谈公园"), slices.Index(texts, "来都来了 | 听了再走")
+	if xzAt < 0 || qqAt < 0 || xzAt > qqAt {
+		t.Fatalf("小宇宙's podcast not first: %q", texts)
+	}
+	for _, want := range []string{"12 集", "283 集", "找到 2 个播客"} {
+		if !tt.HasText(want) {
+			t.Errorf("no %q in %q", want, texts)
+		}
+	}
+	shot(t, tt, "search-podcasts-xiaoyuzhou")
+}
+
+// TestSearchPodcastsTabEnd: a page of QQ Music's with none of its
+// podcasts lets the search go on, and an error of 小宇宙's shows beside
+// what QQ Music found.
+func TestSearchPodcastsTabEnd(t *testing.T) {
+	a, tt, f := newTestApp(t)
+	a.api.HTTP = &http.Client{Transport: offline{}}
+	a.images = newImages(func(context.Context, string) ([]byte, error) { return nil, errors.New("offline") }, f.Post, a.trim.soon)
+	s := &a.search
+	a.runSearch("大医来了", 1)
+	settle(tt, f, 5*time.Second, func() bool { return !s.loading && !s.podcasts.loading })
+	a.showSearchTab(foundPodcasts)
+
+	s.podcasts = pager[qqmusic.Show]{pages: 1, more: true}
+	s.xiaoyuzhouShows = pager[xiaoyuzhou.Podcast]{}
+	tt.Frame()
+	if !tt.HasText("前 1 页没有找到相关播客") || !tt.HasText("继续查找") || tt.HasText("暂无播客") {
+		t.Fatalf("none on a page: %q", tt.Texts())
+	}
+
+	s.podcasts = pager[qqmusic.Show]{pages: 1, items: []qqmusic.Show{{Mid: "m", Title: "来都来了", Episodes: 3}}}
+	s.xiaoyuzhouShows = pager[xiaoyuzhou.Podcast]{err: "小宇宙出错了"}
+	tt.Frame()
+	if !tt.HasText("来都来了") || !tt.HasText("小宇宙出错了") {
+		t.Fatalf("小宇宙's error: %q", tt.Texts())
+	}
+
+	// QQ Music's error leaves 小宇宙's more to load.
+	s.podcasts = pager[qqmusic.Show]{err: "QQ 音乐出错了"}
+	s.xiaoyuzhouShows = pager[xiaoyuzhou.Podcast]{pages: 1, more: true, items: []xiaoyuzhou.Podcast{{Pid: "p", Title: "日谈公园"}}}
+	tt.Frame()
+	if !tt.HasText("QQ 音乐出错了") || !tt.HasText("加载更多播客") {
+		t.Fatalf("QQ Music's error: %q", tt.Texts())
 	}
 }

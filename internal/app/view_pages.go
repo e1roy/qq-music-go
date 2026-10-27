@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -33,12 +32,12 @@ func (a *app) content(c *ui.Context) {
 		a.recentPage(c, p)
 	case pagePodcast:
 		a.podcastsPage(c)
-	case pageXyz:
-		a.xyzPage(c)
-	case pageXyzShow:
-		a.xyzShowPage(c, p)
-	case pageXyzCategory:
-		a.xyzCategoryPage(c, p)
+	case pageXiaoyuzhou:
+		a.xiaoyuzhouPage(c)
+	case pageXiaoyuzhouShow:
+		a.xiaoyuzhouShowPage(c, p)
+	case pageXiaoyuzhouCategory:
+		a.xiaoyuzhouCategoryPage(c, p)
 	}
 }
 
@@ -237,22 +236,22 @@ func (a *app) forYou(c *ui.Context) {
 	ui.Grid(c).Columns(2).Gap(12).Children(func() {
 		if len(h.guess) > 0 {
 			s := h.guess[0]
-			if cur, ok := a.nowPlaying(); ok && a.radio {
+			if cur, ok := a.nowPlaying(); ok && a.queue.Radio() {
 				s = cur
 			}
-			playing := a.radio && a.player.Playing()
-			card, play := a.forYouCard(c, "guess", s.Cover(300), icSparkles, "私人电台", "猜你喜欢", a.radio, playing, func() {
+			playing := a.queue.Radio() && a.player.Playing()
+			card, play := a.forYouCard(c, "guess", s.Cover(300), icSparkles, "私人电台", "猜你喜欢", a.queue.Radio(), playing, func() {
 				t := ui.RichText(c).FontSize(13).SingleLine().Children(func() {
 					ui.Text(c, s.DisplayName()+" - ")
 					a.singerLinks(c, s.Singers, 13)
 				})
-				if a.radio {
+				if a.queue.Radio() {
 					t.TextColor(colAccent)
 				}
 				ui.Text(c, "越听越懂你，一直播下去").FontSize(12).TextColor(colMuted).SingleLine()
 			})
 			if card.Clicked() || play.Valid() && play.Clicked() {
-				if a.radio {
+				if a.queue.Radio() {
 					a.togglePlay()
 				} else {
 					a.playRadio()
@@ -461,45 +460,6 @@ func (a *app) playlistCard(c *ui.Context, p qqmusic.Playlist, pg page, title, su
 		a.navigate(pg)
 	}
 	return card
-}
-
-// playPage loads the songs of a playlist or chart and plays them.
-func (a *app) playPage(pg page) {
-	if l := a.lists[pg.key()]; l != nil && len(l.songs) > 0 {
-		a.playList(l.songs, 0)
-		return
-	}
-	if !a.api.LoggedIn() {
-		a.playList([]qqmusic.Song{{}}, 0) // asks to log in
-		return
-	}
-	a.toast("正在加载歌单…")
-	a.do(func(ctx context.Context) func() {
-		var songs []qqmusic.Song
-		var err error
-		var al qqmusic.AlbumInfo
-		switch pg.kind {
-		case pageToplist:
-			_, songs, err = a.api.ToplistDetail(ctx, int(pg.id), 0, 300)
-		case pageAlbum:
-			// A podcast's newest episodes.
-			var eps []qqmusic.Episode
-			al, eps, _, err = a.api.AlbumDetail(ctx, pg.mid, pg.id)
-			songs = qqmusic.EpisodeSongs(eps)
-		default:
-			_, songs, err = a.api.AllPlaylistSongs(ctx, pg.id, pg.dirid)
-		}
-		return func() {
-			if err != nil {
-				a.toast("加载失败：" + errText(err))
-				return
-			}
-			if al.IsPodcast() {
-				a.podcast.known[al.Mid] = true
-			}
-			a.playList(songs, 0)
-		}
-	})
 }
 
 // discoverTabs switches 音乐馆 between 排行榜 and 歌单广场, where its
@@ -968,7 +928,7 @@ func (a *app) songMenu(s qqmusic.Song) func(m *ui.Menu) {
 		if a.liked[int64(s.ID)] {
 			label = "取消喜欢"
 		}
-		if s.Source == "" && m.Item(label).Chosen() {
+		if fromQQ(s) && m.Item(label).Chosen() {
 			a.toggleLike(s)
 		}
 		for _, sg := range s.Singers {
@@ -977,7 +937,7 @@ func (a *app) songMenu(s qqmusic.Song) func(m *ui.Menu) {
 			}
 		}
 		label = "查看专辑："
-		if a.podcast.known[s.Album.Mid] || s.Source == xyzSource {
+		if a.isEpisode(s) {
 			label = "查看节目："
 		}
 		if s.Album.Mid != "" && m.Item(label+s.Album.Name).Chosen() {

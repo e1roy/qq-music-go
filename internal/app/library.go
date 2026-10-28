@@ -39,6 +39,20 @@ type songList struct {
 	motion [2]tabMotion
 }
 
+// rowGone tells which row of a list went as it loaded again, as 取消喜欢
+// takes one out: the first index the two differ at, for a list one shorter.
+func rowGone(old, now []qqmusic.Song) (int, bool) {
+	if len(now)+1 != len(old) {
+		return 0, false
+	}
+	for i := range now {
+		if keyOf(old[i]) != keyOf(now[i]) {
+			return i, true
+		}
+	}
+	return len(now), true // the last one went
+}
+
 // singerTab is what a singer's page shows.
 type singerTab int
 
@@ -275,6 +289,10 @@ func (a *app) loadList(p page) {
 			}
 			if kept(err) {
 				return
+			}
+			// 取消喜欢 让列表少了一首：它下面的行从原来的位置滑上来。
+			if from, gone := rowGone(l.songs, songs); gone {
+				l.rows.shifted(from, songRowHeight)
 			}
 			l.info, l.period, l.songs = info, period, songs
 			if p.dirid == 201 {

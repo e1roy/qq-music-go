@@ -11,7 +11,7 @@ import (
 // hand with mygo.json's version when releasing (打包build.bat / .sh writes
 // mygo.json; nothing reads it back into the binary).
 const (
-	appVersion = "1.0.10"
+	appVersion = "1.0.11"
 	appRepo    = "https://github.com/e1roy/qq-music-go"
 )
 

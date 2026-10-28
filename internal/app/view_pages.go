@@ -761,6 +761,11 @@ func (a *app) isPlaying(s qqmusic.Song) bool {
 	return ok && cur.Mid == s.Mid
 }
 
+// songRowHeight is the height of a row of a song table: what the rows below
+// one that went slide up by. It is the row's padding above and below and the
+// cover between them.
+const songRowHeight = 48
+
 // songTable shows songs as rows below a header, in one virtual list, whose
 // rows come in one after another as key is another list.
 func (a *app) songTable(c *ui.Context, ls *ui.ListState, songs []qqmusic.Song, header, footer func(), rows *rowsMotion, key any) {

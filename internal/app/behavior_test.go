@@ -250,6 +250,71 @@ func TestPageSwitchAnimates(t *testing.T) {
 	}
 }
 
+// TestLikedRowSlides checks that the rows below one taken out of a song list
+// slide up into their places: they start where they were, and are a row
+// higher once it is done, rather than jumping there.
+func TestLikedRowSlides(t *testing.T) {
+	a, _ := newOfflineApp(t, t.TempDir())
+	p := page{kind: pagePlaylist, dirid: 201, title: "我喜欢"}
+	l := &songList{}
+	a.lists[p.key()] = l
+	for i := range 20 {
+		l.songs = append(l.songs, qqmusic.Song{Mid: fmt.Sprint(i), Name: fmt.Sprintf("歌曲 %d", i+1), Interval: 240})
+	}
+	tt := ui.NewTester(a.view, 1280, 820)
+	a.navigate(p)
+	tt.Frame()
+	tt.Advance(time.Second)
+	was, ok := tt.Find("歌曲 6")
+	if !ok {
+		t.Fatal("no 歌曲 6")
+	}
+
+	// 歌曲 3 取消喜欢: it went, and the rows below come from where it was.
+	l.rows.shifted(2, songRowHeight)
+	l.songs = append(l.songs[:2], l.songs[3:]...)
+	tt.Frame()
+	if now, ok := tt.Find("歌曲 6"); !ok || now.Y < was.Y-2 {
+		t.Errorf("the rows jumped up at once: 歌曲 6 at %v, from %v", now.Y, was.Y)
+	}
+	for range 12 {
+		tt.Frame()
+		tt.Advance(30 * time.Millisecond)
+	}
+	if now, ok := tt.Find("歌曲 6"); !ok || now.Y > was.Y-songRowHeight+2 || now.Y < was.Y-songRowHeight-2 {
+		t.Errorf("the rows did not slide a row up: 歌曲 6 at %v, from %v", now.Y, was.Y)
+	}
+}
+
+// TestRowGone checks which row of a list went as it loaded again.
+func TestRowGone(t *testing.T) {
+	songs := func(n int) []qqmusic.Song {
+		s := make([]qqmusic.Song, n)
+		for i := range s {
+			s[i] = qqmusic.Song{Mid: fmt.Sprint(i)}
+		}
+		return s
+	}
+	old := songs(4)
+	for _, c := range []struct {
+		name string
+		now  []qqmusic.Song
+		want int
+		gone bool
+	}{
+		{"the first", old[1:], 0, true},
+		{"one in the middle", append(append([]qqmusic.Song{}, old[:1]...), old[2:]...), 1, true},
+		{"the last", old[:3], 3, true},
+		{"none", old, 0, false},
+		{"two", old[2:], 0, false},
+		{"another list", songs(4), 0, false},
+	} {
+		if got, gone := rowGone(old, c.now); got != c.want || gone != c.gone {
+			t.Errorf("%s: %d, %v, want %d, %v", c.name, got, gone, c.want, c.gone)
+		}
+	}
+}
+
 // TestRowsComeInOneByOne checks that the rows of a song list come in one
 // after another, from the top: the bottom rows are still to come while the
 // top ones are in, and the page above moves meanwhile.

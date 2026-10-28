@@ -397,6 +397,12 @@ type rowsMotion struct {
 	key any          // the page or the query shown; pages and strings compare
 	at  time.Time    // when it started
 	in  map[int]bool // rows built
+	// A row went as the list loaded again (取消喜欢): the rows from slideFrom
+	// on come from slide further down, and slide up into their places. A List
+	// lays out its rows itself and moves none of them, so they are posed.
+	slideFrom int
+	slide     float32
+	slid      map[int]bool
 }
 
 // show takes the page or the query of the list built: another one brings
@@ -408,8 +414,26 @@ func (m *rowsMotion) show(key any) {
 	m.key, m.at, m.in = key, time.Time{}, map[int]bool{}
 }
 
-// row poses row i of the list, which comes in.
+// shifted tells the rows from i on that the list lost the one it held there,
+// so that they come from as far down as it was: they slide up into their
+// places rather than jumping there.
+func (m *rowsMotion) shifted(from int, h float32) {
+	m.slideFrom, m.slide, m.slid = from, h, map[int]bool{}
+}
+
+// row poses row i of the list, which comes in, or slides up as a row above it
+// went.
 func (m *rowsMotion) row(c *ui.Context, i int, el ui.Element) {
+	if m.slid[i] {
+		el.AnimatePose(ui.Pose{}, rowsSpring) // up with the others, not one by one
+		return
+	}
+	if m.slide != 0 && i >= m.slideFrom {
+		m.slid[i] = true
+		el.AnimatePose(ui.Pose{Y: m.slide}, rowsSpring)
+		c.AnimationFrame() // the frame that heads them up
+		return
+	}
 	if m.at.IsZero() {
 		m.at = c.Now()
 	}

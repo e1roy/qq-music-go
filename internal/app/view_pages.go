@@ -376,7 +376,13 @@ func (a *app) songCards(c *ui.Context, songs []qqmusic.Song, m *refreshMotion) u
 						ic, col, tip = icHeartOn, colAccent, "取消喜欢"
 					}
 					like = iconButton(c, ic, 14, col, tip)
-					more = iconButton(c, icMore, 14, colMuted, "更多").Menu(a.songMenu(s))
+				}
+				// Built even under a pointer that left the card: the item
+				// chosen from its menu comes to the element built in the frame
+				// it was chosen in, and the pointer is on the menu by then.
+				more = iconButton(c, icMore, 14, colMuted, "更多").Menu(a.songMenu(s))
+				if !hover && !playing {
+					more.Opacity(0)
 				}
 			})
 			switch {

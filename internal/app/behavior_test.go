@@ -250,6 +250,43 @@ func TestPageSwitchAnimates(t *testing.T) {
 	}
 }
 
+// TestSongCardMenu checks that the item chosen from the menu of a song card
+// runs: the menu opens from the card's … button, which the pointer leaves as
+// it opens, so the button has to be built still for the choice to arrive.
+func TestSongCardMenu(t *testing.T) {
+	a, _ := newOfflineApp(t, t.TempDir())
+	a.home.newSongs = []qqmusic.Song{{Mid: "a", Name: "歌曲 1", Interval: 240, Album: qqmusic.Album{Name: "专辑", Mid: "am"}}}
+	a.home.loaded = true
+	setQueue(a, episodes("x"), 0)
+	tt := ui.NewTester(a.view, 1280, 820)
+	tt.Frame()
+	tt.Advance(time.Second)
+	title, ok := tt.Find("歌曲 1")
+	if !ok {
+		t.Fatal("no 歌曲 1")
+	}
+	// The buttons of a card are icons, which no label finds: the one that
+	// opens the menu is the last of them, to the right of the title.
+	opened := false
+	for dx := float32(60); dx >= 8 && !opened; dx -= 4 {
+		tt.ClickAt(title.X+title.W+dx, title.Y+title.H/2)
+		if opened = len(tt.Menu()) > 0; !opened && a.login.open {
+			a.closeLogin() // the heart, not the menu
+			tt.Frame()
+		}
+	}
+	if !opened {
+		t.Fatal("the menu of the card never opened")
+	}
+	if err := tt.ChooseMenuItem("添加到播放队列"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if mids, _ := queueState(a); mids != "x a" {
+		t.Errorf("queue %q after 添加到播放队列, want %q", mids, "x a")
+	}
+}
+
 // TestLikedRowSlides checks that the rows below one taken out of a song list
 // slide up into their places: they start where they were, and are a row
 // higher once it is done, rather than jumping there.

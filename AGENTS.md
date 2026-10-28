@@ -199,6 +199,7 @@ playList / playAt
 - **做功能必须考虑动效**：出现、消失、切换、刷新、加载都要有明确的动效决定（按本文加，或明确不加并说明），按 [`动效设计文档.md`](动效设计文档.md) 的三条原则与检查清单来；参数集中在 `motion.go` 顶部，不要散在视图里。
 - 复用共享 helper：`view.go` 的 `button`、`toggle`、`tabs`、`badge`、`ghostButton`、`cover`/`coverOr`、`section`、`navItem`；`view_player.go` 的 `iconButton`；`skeleton.go` 的 `skeleton`。
 - 列表用 `ui.List` + 稳定 key；行内不要保存元素。
+- **带菜单的元素必须每帧都建**：`Element.Menu` / `ContextMenu` 的选择是在“选中之后的下一帧、该元素再次构建时”投递的（`buildMenu` 里比对 `chosen`），元素那一刻不存在，选择就永远丢了。悬停才出现的图标按钮要挂菜单，就让它一直建着、用 `Opacity(0)` 藏起来（见 `songCards` 的「更多」）。
 - 滚动容器用 `ui.Scroll(...).TrackScroll(&state)`；页面滚动状态是 `a.main`。
 - 动画用 `appear`/`presence`/`tabMotion`；只改变绘制时用 `AnimatePose` + `AnimationFrame`，需要下一帧时用 `c.After`。
 - 页面的进场用 `motion.go` 的 `pageTransition`（`ui.ElementTransition` 的 `Enter`），不要用 `appear`：点击改页面发生在某一帧内，一次事件会再建一遍视图，而一帧只保留最后一次 `AnimatePose`，入场姿势会被同帧那次重建吃掉；Transition 在整帧布局后采样。`Enter` 要写 `Opacity: 1`（`ui.Motion` 的 `Opacity` 默认是 0，不写就成了淡入），也不要加 `Exit`：上一页留下的拷贝与新页同时画，两页的文字和卡片对不齐，看着像重影（`TestPageSwitchAnimates`）。

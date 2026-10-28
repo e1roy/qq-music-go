@@ -801,7 +801,7 @@ func (a *app) columnTitles(c *ui.Context) {
 func (a *app) songRow(c *ui.Context, songs []qqmusic.Song, i int) {
 	s := songs[i]
 	playing := a.isPlaying(s)
-	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center)
+	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 	hover := row.Hovered()
 	switch {
 	case hover:
@@ -859,7 +859,7 @@ func (a *app) songRow(c *ui.Context, songs []qqmusic.Song, i int) {
 		})
 		ui.Text(c, s.Duration()).Width(48).TextAlign(ui.End).FontSize(13).TextColor(colMuted).FontFeatures("tnum")
 	})
-	if row.DoubleClicked() {
+	if row.Clicked() {
 		a.playList(songs, i)
 	}
 	row.ContextMenu(a.songMenu(s))

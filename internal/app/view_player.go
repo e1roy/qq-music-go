@@ -713,7 +713,7 @@ func (a *app) queuePanel(c *ui.Context) {
 				if i == len(a.queue.Songs())-1 {
 					bottom = 6
 				}
-				row := ui.Row(c.Key(i)).Margin(top, 6, bottom, 6).Padding(6, 6, 6, 8).Gap(10).Radius(radiusMd).AlignItems(ui.Center)
+				row := ui.Row(c.Key(i)).Margin(top, 6, bottom, 6).Padding(6, 6, 6, 8).Gap(10).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 				hover := row.Hovered()
 				if hover || on {
 					row.Background(colHover)
@@ -738,7 +738,7 @@ func (a *app) queuePanel(c *ui.Context) {
 						a.equalizer(c)
 					}
 				})
-				if row.DoubleClicked() {
+				if row.Clicked() {
 					a.playAt(i)
 				}
 			}).Grow(1)

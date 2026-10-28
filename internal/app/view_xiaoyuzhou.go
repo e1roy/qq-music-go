@@ -509,13 +509,13 @@ func (a *app) xiaoyuzhouEpisodeTitles(c *ui.Context) {
 }
 
 // xiaoyuzhouEpisodeRow is episode i of eps: its cover, title, podcast, date,
-// plays and length. A double click plays eps from it.
+// plays and length. A click plays eps from it.
 func (a *app) xiaoyuzhouEpisodeRow(c *ui.Context, eps []xiaoyuzhou.Episode, i int, pod *xiaoyuzhou.Podcast, ranked bool) {
 	e := eps[i]
 	s := episodeSong(e, pod)
 	playing := a.isPlaying(s)
 	play := func() { a.playList(episodeSongs(eps, pod), i) }
-	row := ui.Row(c.Key(e.Eid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center)
+	row := ui.Row(c.Key(e.Eid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 	hover := row.Hovered()
 	switch {
 	case hover:
@@ -572,7 +572,7 @@ func (a *app) xiaoyuzhouEpisodeRow(c *ui.Context, eps []xiaoyuzhou.Episode, i in
 		ui.Text(c, plays).Width(64).TextAlign(ui.End).FontSize(13).TextColor(colMuted).FontFeatures("tnum").SingleLine()
 		ui.Text(c, s.Duration()).Width(48).TextAlign(ui.End).FontSize(13).TextColor(colMuted).FontFeatures("tnum")
 	})
-	if row.DoubleClicked() {
+	if row.Clicked() {
 		play()
 	}
 	row.ContextMenu(a.songMenu(s))

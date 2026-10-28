@@ -309,12 +309,12 @@ func (a *app) episodeTitles(c *ui.Context) {
 }
 
 // episodeRow is episode i of a podcast's page: its number, title, date
-// and plays. A double click plays the episodes from it.
+// and plays. A click plays the episodes from it.
 func (a *app) episodeRow(c *ui.Context, l *songList, i int) {
 	e := l.eps[i]
 	s := e.Song
 	playing := a.isPlaying(s)
-	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center)
+	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 	hover := row.Hovered()
 	switch {
 	case hover:
@@ -379,7 +379,7 @@ func (a *app) episodeRow(c *ui.Context, l *songList, i int) {
 		})
 		ui.Text(c, s.Duration()).Width(48).TextAlign(ui.End).FontSize(13).TextColor(colMuted).FontFeatures("tnum")
 	})
-	if row.DoubleClicked() {
+	if row.Clicked() {
 		a.playList(l.songs, i)
 	}
 	row.ContextMenu(a.songMenu(s))

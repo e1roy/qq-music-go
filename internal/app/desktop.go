@@ -271,6 +271,16 @@ func onDisplay(r mygo.Rectangle) bool {
 	return false
 }
 
+// chrome is the part of the main window's options that shows its buttons,
+// which differs by platform: macOS draws its own, over the sidebar, and the
+// view draws them at the top right of the page elsewhere
+// (window_darwin.go, window_other.go).
+type chrome struct {
+	style       mygo.TitleBarStyle
+	hideButtons bool        // the system's buttons are hidden for the view's
+	lights      *mygo.Point // where macOS puts the close button's top left
+}
+
 // Run opens the main window and runs the app until it quits. It must be
 // called on the main goroutine.
 func Run() error {
@@ -291,16 +301,18 @@ func Run() error {
 		// The bounds live in the settings rather than in WindowOptions.StateKey:
 		// MyGo saves a keyed window only when it closes, and `mygo dev` kills
 		// the build it replaces instead of closing it.
+		ch := windowChrome()
 		opts := mygo.WindowOptions{
-			Title:             "QQ音乐",
-			Width:             1280,
-			Height:            820,
-			MinWidth:          960,
-			MinHeight:         600,
-			Maximized:         a.set.WinMax,
-			TitleBarStyle:     mygo.TitleBarHidden,
-			HideWindowButtons: true,
-			Content:           ui.View(a.view),
+			Title:                "QQ音乐",
+			Width:                1280,
+			Height:               820,
+			MinWidth:             960,
+			MinHeight:            600,
+			Maximized:            a.set.WinMax,
+			TitleBarStyle:        ch.style,
+			HideWindowButtons:    ch.hideButtons,
+			TrafficLightPosition: ch.lights,
+			Content:              ui.View(a.view),
 			// Shown once d.win is set: showing builds the first frame at
 			// once, which asks the window whether it is maximized.
 			Hidden: true,

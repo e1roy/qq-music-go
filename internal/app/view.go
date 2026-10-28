@@ -64,6 +64,9 @@ const (
 	topHeight  = 52  // the title bar at the top of the page
 	tintHeight = 360 // how far down the page's color fades out
 	queueWidth = 340 // the queue, a column on the right of the panel
+	// brandHeight is the sidebar's top row: the brand, level with the title
+	// bar, under the frame's own padding.
+	brandHeight = 8 + topHeight
 
 	// pagePadX is how far a page's content is inset from the panel's edge.
 	// The title bar and the table rows, which are drawn at that edge, use it
@@ -311,10 +314,10 @@ const windowControlsWidth = 3*32 + 2*2 + 10
 // topbar is the title bar at the top of the page, on its color: history,
 // and search in the middle.
 func (a *app) topbar(c *ui.Context) {
-	// Room for the window controls, unless a panel is beside the page,
-	// below them.
+	// Room for the window controls, unless the system draws them at the
+	// left (systemControls) or a panel is beside the page, below them.
 	right := float32(windowControlsWidth)
-	if a.sidePanel() {
+	if systemControls || a.sidePanel() {
 		right = 0
 	}
 	ui.Row(c).Height(topHeight).PaddingX(16).AlignItems(ui.Center).DragWindow().Children(func() {
@@ -336,8 +339,13 @@ func (a *app) topbar(c *ui.Context) {
 }
 
 // windowControls are the window's minimize, maximize and close buttons,
-// in the top right corner of the window.
+// in the top right corner of the window. Where the system draws its own
+// (macOS), the view draws none: the sidebar keeps their corner clear
+// instead, and the title bar no longer reserves room for them.
 func (a *app) windowControls(c *ui.Context) {
+	if systemControls {
+		return
+	}
 	ui.Row(c).Absolute().Top((topHeight - 32) / 2).Right(10).Gap(2).Children(func() {
 		if windowButton(c, icMinimize, "最小化", false).Clicked() {
 			a.plat.Minimize()
@@ -825,8 +833,13 @@ func (a *app) podcastTitle(c *ui.Context) {
 func (a *app) sidebar(c *ui.Context) {
 	ui.Column(c).Width(sidebarWidth).Children(func() {
 		// The logo, level with the page's title bar; with it, the top of
-		// the sidebar moves the window.
-		ui.Row(c).Height(8+topHeight).Padding(8, pagePadX, 0, pagePadX).AlignItems(ui.Center).Gap(10).DragWindow().Children(func() {
+		// the sidebar moves the window. Where the system draws the window's
+		// buttons over the row (macOS), the brand follows them.
+		left := float32(pagePadX)
+		if systemControls {
+			left = max(left, c.TitleBar().Left+8)
+		}
+		ui.Row(c).Height(brandHeight).Padding(8, pagePadX, 0, left).AlignItems(ui.Center).Gap(10).DragWindow().Children(func() {
 			ui.Image(c, icLogo).Size(24, 24)
 			ui.Text(c, "QQ音乐").FontSize(15).FontWeight(600)
 		})

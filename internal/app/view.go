@@ -74,6 +74,12 @@ const (
 	pagePadX = 24
 )
 
+// topBarFrosted toggles the translucent title bar, where the page scrolling
+// under it used to show blurred through a soft alpha wash. Disabled for
+// now in favor of a flat, fully opaque bar; flip back to true to restore
+// the frosted look.
+const topBarFrosted = false
+
 func theme() *ui.Theme {
 	t := *ui.DarkTheme()
 	t.Background, t.Surface, t.SurfaceHover, t.SurfacePressed = colPanel, colInputBg, colInputBgH, ui.RGBA(255, 255, 255, 0.11)
@@ -153,25 +159,40 @@ func (a *app) view(c *ui.Context) {
 							appear(c, pg, &a.pageIn, pageOut, pageSpring)
 							pg.Children(func() { a.content(c) })
 							// The title bar floats over the top of the page, which
-							// scrolls under it (pages start topHeight down), frosted
-							// as the bottom is under the player bar: from its bottom
-							// edge up, sharp to blurred, under a wash of the color
-							// the top of the page has.
-							// Up from its bottom edge, the wash thickens along a
-							// smoothstep, light at first and heavy only towards the
-							// top, not evenly: an even ramp shows where it starts.
-							ui.Box(c.Key("topFrost")).Absolute().Top(0).Left(0).Right(0).Height(topHeight).PassThrough().
-								Material(glass.Blur{Radius: 18, Mask: &ui.LinearGradient{From: ui.RGB(0, 0, 0), To: ui.Transparent, Angle: 180, Start: 0.5, End: 1}}).
-								Draw(func(p *ui.Painter, r ui.Rect) {
-									top := colPanel.Mix(a.tint.color(p), 0.45)
-									var stops [9]ui.GradientStop
-									for i := range stops {
-										at := float32(i) / float32(len(stops)-1)
-										x := min((1-at)/0.45, 1) // up from the bottom
-										stops[i] = ui.GradientStop{Color: top.Alpha(0.98 * x * x * (3 - 2*x)), At: at}
-									}
-									p.FillGradient(r, ui.LinearGradient{Angle: 180, Stops: stops[:]}, 0)
+							// scrolls under it (pages start topHeight down). It used
+							// to be frosted, a translucent wash over a blur of
+							// whatever scrolled underneath; topBarFrosted is off for
+							// now, so it is an opaque bar in the color the wash has
+							// there: the same color the page shows under its bottom
+							// edge, so that it meets the page without a seam.
+							frost := ui.Box(c.Key("topFrost")).Absolute().Top(0).Left(0).Right(0).Height(topHeight).PassThrough()
+							if topBarFrosted {
+								// Up from its bottom edge, the wash thickens along a
+								// smoothstep, light at first and heavy only towards
+								// the top, not evenly: an even ramp shows where it
+								// starts.
+								frost.Material(glass.Blur{Radius: 18, Mask: &ui.LinearGradient{From: ui.RGB(0, 0, 0), To: ui.Transparent, Angle: 180, Start: 0.5, End: 1}}).
+									Draw(func(p *ui.Painter, r ui.Rect) {
+										top := colPanel.Mix(a.tint.color(p), 0.45)
+										var stops [9]ui.GradientStop
+										for i := range stops {
+											at := float32(i) / float32(len(stops)-1)
+											x := min((1-at)/0.45, 1) // up from the bottom
+											stops[i] = ui.GradientStop{Color: top.Alpha(0.98 * x * x * (3 - 2*x)), At: at}
+										}
+										p.FillGradient(r, ui.LinearGradient{Angle: 180, Stops: stops[:]}, 0)
+									})
+							} else {
+								// The wash is a ramp too, so this is not one color
+								// but the wash's own, from its top down to where
+								// the page takes it over at r's bottom.
+								frost.Draw(func(p *ui.Painter, r ui.Rect) {
+									p.FillGradient(r, ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
+										{Color: a.tint.opaque(p, 0), At: 0},
+										{Color: a.tint.opaque(p, r.H/tintHeight), At: 1},
+									}}, 0)
 								})
+							}
 							ui.Box(c).Absolute().Top(0).Left(0).Right(0).Children(func() { a.topbar(c) })
 						}
 					})
@@ -883,31 +904,34 @@ func (a *app) sidebar(c *ui.Context) {
 					ui.Text(c, "正在同步…").FontSize(13).TextColor(colMuted)
 				})
 			}
-			a.playlistSection(c, "创建的歌单", a.myLists, &a.set.MineClosed, true)
-			a.playlistSection(c, "收藏的歌单", a.favLists, &a.set.FavClosed, false)
+			a.playlistSection(c, icFolder, "创建的歌单", a.myLists, &a.set.MineClosed, true)
+			a.playlistSection(c, icStar, "收藏的歌单", a.favLists, &a.set.FavClosed, false)
 		})
 		a.userArea(c)
 	})
 }
 
-func (a *app) playlistSection(c *ui.Context, title string, pls []qqmusic.Playlist, closed *bool, skipLiked bool) {
+func (a *app) playlistSection(c *ui.Context, ic *ui.SVG, title string, pls []qqmusic.Playlist, closed *bool, skipLiked bool) {
 	if len(pls) == 0 {
 		return
 	}
-	head := ui.Row(c).Height(40).Margin(12, 0, 4, 0).PaddingX(16).Gap(6).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	// Icon + gap match navItem's, so this label's text lines up with
+	// "我喜欢"/"最近播放" above it instead of jutting out to the left.
+	head := ui.Row(c).Height(40).Margin(12, 0, 4, 0).PaddingX(16).Gap(12).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 	fg := colMuted
 	if head.Hovered() {
 		head.Background(colHover)
 		fg = colText
 	}
 	head.Children(func() {
+		ui.Icon(c, ic).FontSize(18).TextColor(fg)
 		ui.Text(c, title).FontSize(13).FontWeight(500).TextColor(fg).Grow(1)
 		ui.Text(c, fmt.Sprint(len(pls))).FontSize(13).TextColor(colDim).FontFeatures("tnum")
-		ic := icDown
+		chevron := icDown
 		if *closed {
-			ic = icForward
+			chevron = icForward
 		}
-		ui.Icon(c, ic).FontSize(14).TextColor(fg)
+		ui.Icon(c, chevron).FontSize(14).TextColor(colDim)
 	}).OnClick(func() {
 		*closed = !*closed
 		a.saveSettings()

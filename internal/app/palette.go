@@ -338,6 +338,29 @@ func (f *tintFade) color(p *ui.Painter) ui.Color {
 	return f.now(p.Now())
 }
 
+// The wash's alphas down the page: heavy at the top, lighter past halfway,
+// gone at tintHeight. band and the title bar, which is the wash painted
+// opaque, read the same numbers, so the one meets the other in its color.
+const (
+	tintTop  = 0.45
+	tintMid  = 0.18
+	tintKnee = 0.55
+)
+
+// tintWash is the wash's alpha at at, the part of the way down to
+// tintHeight.
+func tintWash(at float32) float32 {
+	switch {
+	case at <= 0:
+		return tintTop
+	case at <= tintKnee:
+		return tintTop + (tintMid-tintTop)*(at/tintKnee)
+	case at < 1:
+		return tintMid * (1 - (at-tintKnee)/(1-tintKnee))
+	}
+	return 0
+}
+
 // band paints the color at the top of r, faint as a wash under the
 // page's neutral grays, fading out down to height, or to r's bottom if it
 // is lower.
@@ -346,11 +369,18 @@ func (f *tintFade) band(height float32) func(p *ui.Painter, r ui.Rect) {
 		col := f.color(p)
 		r.H = min(r.H, height)
 		p.FillGradient(r, ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
-			{Color: col.Alpha(0.45), At: 0},
-			{Color: col.Alpha(0.18), At: 0.55},
+			{Color: col.Alpha(tintWash(0)), At: 0},
+			{Color: col.Alpha(tintWash(tintKnee)), At: tintKnee},
 			{Color: col.Alpha(0), At: 1},
 		}}, 0)
 	}
+}
+
+// opaque is the wash at at as a color of its own, over the page's gray:
+// what a solid bar over the page takes, to be the wash where the page
+// shows it, without the page showing through.
+func (f *tintFade) opaque(p *ui.Painter, at float32) ui.Color {
+	return colPanel.Mix(f.color(p), tintWash(at))
 }
 
 // fill paints the color over all of r.

@@ -196,12 +196,13 @@ playList / playAt
 
 ### 6.3 视图
 
+- **做功能必须考虑动效**：出现、消失、切换、刷新、加载都要有明确的动效决定（按本文加，或明确不加并说明），按 [`动效设计文档.md`](动效设计文档.md) 的三条原则与检查清单来；参数集中在 `motion.go` 顶部，不要散在视图里。
 - 复用共享 helper：`view.go` 的 `button`、`toggle`、`tabs`、`badge`、`ghostButton`、`cover`/`coverOr`、`section`、`navItem`；`view_player.go` 的 `iconButton`；`skeleton.go` 的 `skeleton`。
 - 列表用 `ui.List` + 稳定 key；行内不要保存元素。
 - 滚动容器用 `ui.Scroll(...).TrackScroll(&state)`；页面滚动状态是 `a.main`。
 - 动画用 `appear`/`presence`/`tabMotion`；只改变绘制时用 `AnimatePose` + `AnimationFrame`，需要下一帧时用 `c.After`。
 - 页面的进场用 `motion.go` 的 `pageTransition`（`ui.ElementTransition` 的 `Enter`），不要用 `appear`：点击改页面发生在某一帧内，一次事件会再建一遍视图，而一帧只保留最后一次 `AnimatePose`，入场姿势会被同帧那次重建吃掉；Transition 在整帧布局后采样。`Enter` 要写 `Opacity: 1`（`ui.Motion` 的 `Opacity` 默认是 0，不写就成了淡入），也不要加 `Exit`：上一页留下的拷贝与新页同时画，两页的文字和卡片对不齐，看着像重影（`TestPageSwitchAnimates`）。
-- 歌曲列表的行另有逐行入场（`rowsMotion`：`songTable` 按页面 key、搜索按查询词 arm，行按 0–200ms 依次进场）。页面入场不要把行一起淡掉，否则看不出逐行；`TestRowsComeInOneByOne` 守着这一点。
+- 歌曲列表的行另有逐行入场（`rowsMotion`：`songTable` 按页面 key、搜索按查询词换一份，行间 8ms、最多错开 12 行）。页面入场不要把行一起淡掉，否则看不出逐行；`TestRowsComeInOneByOne` 守着这一点。
 - `ui.ListState.ScrollTo` 是瞬跳，没有动画可设：歌词换行的上下滚动是 `motion.go` 的 `lyricScroll` —— 跳转前量出下一句离中间多远，跳转那一帧把各行 `Translate` 回原位再滑回去。行内的动画状态靠 `c.Key(i)` 的身份跨帧保留；测量用 `ui.Handle` + `.Bind`（`Handle.Bounds` 给上一帧的布局位置）。
 - 页面顶部渐变色由 `a.pageTint(coverURL)` 计算，经 `a.tint.band(tintHeight)` 绘制。
 
@@ -311,6 +312,7 @@ playList / playAt
 - [ ] 新页面/接口已更新 `CODEMAP.md`
 - [ ] 未提交 `cred.json`、`build/`、`*.syso` 等生成物
 - [ ] 用户可见文案为中文，代码注释为英文
+- [ ] 动效：新的出现/消失/切换/刷新按 `动效设计文档.md` 的检查清单过了一遍
 - [ ] 已用 `.\打包build.bat` 生成 `build/release/` 下的两个 exe（§10.1）
 - [ ] 已 push 代码与 tag，并创建 GitHub Release、上传两个 exe（§10.1）
 

@@ -176,7 +176,7 @@ func (a *app) foundSongs(c *ui.Context) {
 		})
 		return
 	}
-	a.songTable(c, &s.list, s.songs, header, footer, false)
+	a.songTable(c, &s.list, s.songs, header, footer, &s.rows, s.query)
 }
 
 // foundSingers is the tab of the singers found.

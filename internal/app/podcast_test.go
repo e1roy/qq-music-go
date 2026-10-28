@@ -58,8 +58,8 @@ func TestPodcasts(t *testing.T) {
 	}
 
 	tt := ui.NewTester(a.view, 1280, 2400)
-	// 小宇宙 opens 小宇宙's own podcasts unless QQ Music's are chosen.
-	a.set.XiaoyuzhouOfficial = false
+	// 小宇宙 opens the source chosen unless it was asked: then QQ Music's.
+	a.set.XiaoyuzhouOfficial, a.set.XiaoyuzhouChosen = false, true
 	if err := tt.Click("小宇宙"); err != nil {
 		t.Fatal(err)
 	}
@@ -254,5 +254,52 @@ func TestSearchPodcastsTabEnd(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("QQ 音乐出错了") || !tt.HasText("加载更多播客") {
 		t.Fatalf("QQ Music's error: %q", tt.Texts())
+	}
+}
+
+// TestPodcastSource: 小宇宙 asks where its podcasts come from the first time,
+// shows the source chosen in place of that page, and opens it without asking
+// again once the choice is kept.
+func TestPodcastSource(t *testing.T) {
+	dir := t.TempDir()
+	a, f := newOfflineApp(t, dir)
+	tt := ui.NewTester(a.view, 1280, 820)
+
+	if err := tt.Click("小宇宙"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.current().kind != pagePodcastStart || a.set.XiaoyuzhouChosen {
+		t.Fatalf("opened %v, chosen %v", a.current().kind, a.set.XiaoyuzhouChosen)
+	}
+	for _, s := range []string{"先选一个节目来源", "官方小宇宙", "QQ 音乐的小宇宙", "内容", "登录", "播放", "使用官方小宇宙", "使用 QQ 音乐的小宇宙"} {
+		if !tt.HasText(s) {
+			t.Errorf("no %q in %q", s, tt.Texts())
+		}
+	}
+	shot(t, tt, "podcast-start")
+
+	// The card itself is the choice: under the pointer it comes forward, and
+	// a click on it, off its button, takes QQ Music's podcasts, which
+	// replace the page that asked.
+	r, ok := tt.Find("仅 QQ 音乐收录的节目")
+	if !ok {
+		t.Fatalf("no card of QQ Music's: %q", tt.Texts())
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+	shot(t, tt, "podcast-start-hover")
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	if a.current().kind != pagePodcast || a.set.XiaoyuzhouOfficial || !a.set.XiaoyuzhouChosen {
+		t.Fatalf("opened %v, official %v, chosen %v", a.current().kind, a.set.XiaoyuzhouOfficial, a.set.XiaoyuzhouChosen)
+	}
+
+	// Kept for the next run, which does not ask.
+	b := newApp(f, dir)
+	if b.set.XiaoyuzhouOfficial || !b.set.XiaoyuzhouChosen || b.podcastHome().kind != pagePodcast {
+		t.Fatalf("kept official %v, chosen %v, home %v", b.set.XiaoyuzhouOfficial, b.set.XiaoyuzhouChosen, b.podcastHome().kind)
 	}
 }

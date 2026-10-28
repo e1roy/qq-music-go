@@ -16,6 +16,7 @@ const (
 	pageRecent // the songs played last, kept on this computer
 	pageAlbum  // an album, or a podcast (节目), by its mid or else its id
 	pagePodcast
+	pagePodcastStart       // 小宇宙 before its source was chosen: QQ Music's podcasts, or 小宇宙's own
 	pageXiaoyuzhou         // 小宇宙 官方: 小宇宙's own podcasts
 	pageXiaoyuzhouShow     // a podcast of 小宇宙, by its pid as mid
 	pageXiaoyuzhouCategory // a category of 小宇宙's podcasts, by its id as mid
@@ -70,18 +71,22 @@ func (a *app) closeLyrics() {
 }
 
 // podcastHome is 小宇宙 as the user left it: QQ Music's podcasts, or
-// 小宇宙's own.
+// 小宇宙's own; the first time, the page that asks which.
 func (a *app) podcastHome() page {
+	if !a.set.XiaoyuzhouChosen {
+		return page{kind: pagePodcastStart, title: "小宇宙"}
+	}
 	if a.set.XiaoyuzhouOfficial {
 		return page{kind: pageXiaoyuzhou, title: "小宇宙"}
 	}
 	return page{kind: pagePodcast, title: "小宇宙"}
 }
 
-// switchPodcasts shows 小宇宙 from the other source in place of the page
-// shown, as a tab does: back does not switch it again.
-func (a *app) switchPodcasts() {
-	a.set.XiaoyuzhouOfficial = !a.set.XiaoyuzhouOfficial
+// choosePodcastSource takes 小宇宙's podcasts from QQ Music or from 小宇宙
+// itself, as the first page of it asks, and keeps the choice: the page is
+// shown in place of that one, as a tab is.
+func (a *app) choosePodcastSource(official bool) {
+	a.set.XiaoyuzhouOfficial, a.set.XiaoyuzhouChosen = official, true
 	a.saveSettings()
 	p := a.podcastHome()
 	a.history[len(a.history)-1] = p
@@ -89,6 +94,10 @@ func (a *app) switchPodcasts() {
 	a.main.Y = 0
 	a.enter(p)
 }
+
+// switchPodcasts shows 小宇宙 from the other source in place of the page
+// shown, as a tab does: back does not switch it again.
+func (a *app) switchPodcasts() { a.choosePodcastSource(!a.set.XiaoyuzhouOfficial) }
 
 func (a *app) back() {
 	if len(a.history) > 1 {

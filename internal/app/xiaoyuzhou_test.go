@@ -67,16 +67,23 @@ func TestXiaoyuzhou(t *testing.T) {
 	a.images = newImages(func(context.Context, string) ([]byte, error) { return nil, errors.New("offline") }, f.Post, a.trim.soon)
 	tt := ui.NewTester(a.view, 1280, 1600)
 
-	// Logged out, it asks for the QR code; failing, it says so. The sidebar
-	// opens 小宇宙's own podcasts by default.
+	// The first time, it asks where its podcasts come from. 小宇宙's own,
+	// chosen here, logged out, asks for the QR code; failing, it says so.
 	x := &a.xiaoyuzhou
 	x.qrErr = "获取二维码失败：离线"
 	if err := tt.Click("小宇宙"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.current().kind != pageXiaoyuzhou || !a.set.XiaoyuzhouOfficial {
-		t.Fatalf("opened %v, official %v", a.current().kind, a.set.XiaoyuzhouOfficial)
+	if a.current().kind != pagePodcastStart || a.set.XiaoyuzhouChosen {
+		t.Fatalf("opened %v, chosen %v", a.current().kind, a.set.XiaoyuzhouChosen)
+	}
+	if err := tt.Click("使用官方小宇宙"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.current().kind != pageXiaoyuzhou || !a.set.XiaoyuzhouOfficial || !a.set.XiaoyuzhouChosen {
+		t.Fatalf("opened %v, official %v, chosen %v", a.current().kind, a.set.XiaoyuzhouOfficial, a.set.XiaoyuzhouChosen)
 	}
 	for _, s := range []string{"官方", "登录小宇宙", "二维码获取失败", "刷新二维码", "获取二维码失败：离线", "手机号登录"} {
 		if !tt.HasText(s) {

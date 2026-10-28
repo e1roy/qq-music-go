@@ -32,7 +32,7 @@
 | 文件 | 职责 | 关键符号 |
 |---|---|---|
 | `app.go` | `app` 结构体（各区域状态的所有者）、`platform` 接口（含 `OpenFolder`）、`newApp`、后台任务入口与错误文案 | `app`、`platform`、`cookie`、`newApp`、`do`、`toast`、`errText` |
-| `nav.go` | 页面与历史：`page`/`pageKind`，前进后退，`enter` / `refresh` / `refreshing` 三个按页面分派的 switch（相邻排列，新增页面时一起改） | `page`/`pageKind`、`current`、`navigate`、`podcastHome`/`switchPodcasts`、`back`/`forward`、`enter`、`refresh`、`refreshing` |
+| `nav.go` | 页面与历史：`page`/`pageKind`，前进后退，`enter` / `refresh` / `refreshing` 三个按页面分派的 switch（相邻排列，新增页面时一起改） | `page`/`pageKind`、`current`、`navigate`、`podcastHome`/`choosePodcastSource`/`switchPodcasts`、`back`/`forward`、`enter`、`refresh`、`refreshing` |
 | `library.go` | QQ 音乐歌曲类页面的加载编排：首页、音乐馆（榜单/广场）、歌单/榜单/专辑（播客单集按页）/歌手，以及卡片上的「播放」 | `songList`、`albumList`、`singerTab`、`loadHome`/`moreRecs`/`moreRadar`、`loadSquare`/`addPlaylists`、`loadCharts`、`loadList`、`listSongs`（歌单/榜单取歌，`loadList` 与 `playPage` 共用）、`playPage`、`loadAlbum`、`loadSinger`/`loadAlbums`/`sortSinger`/`showTab` |
 | `search.go` | 搜索：单曲分页、歌手/歌单/播客页签、联想、搜索历史、搜索框作用域 | `searchTab`、`runSearch`、`suggestAsTyped`/`rest`、`searchWords`/`searchStep`/`searchKeys`、`chooseSearch`、`searchScope`（`scopeMusic`/`scopePodcasts`/`scopeXiaoyuzhou`）、`rememberSearch`/`clearSearches`、`showSearchTab`/`loadSearchTab`/`loadSearchPodcasts`、`searchMore`/`searchSingers`/`searchPlaylists`/`addSingers`、`moreXiaoyuzhouPodcastsFound`/`moreFoundPodcasts`（播客页签同时搜小宇宙官方） |
 | `session.go` | QQ 音乐会话：启动校验、登录成功、我的歌单、退出、我喜欢 | `startSession`、`loggedIn`、`loadMine`、`setLiked`（重读我喜欢时保留进行中的红心，`app.liking`）、`logout`、`toggleLike` |
@@ -59,13 +59,13 @@
 | `icons.go` | Lucide 风格 SVG 图标集合与应用 Logo | `icLogo`、`icon`/`filledIcon`、`icHome`…`icWeChat`、`icComment`/`icThumb`、`icSettings`/`icDrive`/`icFolder`、`icFlame`/`icTrending`/`icStar` |
 | `images.go` | 图片异步下载、缩放、缓存、按帧淘汰；同时缓存图片主色 | `images`、`imageEntry`、`imageBudget`（48 MiB）、`newImages`、`frame`、`get`、`peek`、`color`、`shrink` |
 | `palette.go` | 从封面提取主色（median cut + Palette 目标），生成页面顶部渐变色；颜色过渡 | `swatch`、`target`、`paletteTargets`、`dominantColor`、`quantize`、`box`、`hsl`、`tint`、`oklch`、`tintNone`、`tintFade`、`pageTint` |
-| `motion.go` | 页面/歌词/队列的进入退出动画、歌词以 genie 效果收放（`genieShader` 按封面位置把整页弯折收缩）、面板从房间边缘滑入滑出、锚点上方的菜单升起落下、歌手页页签行级动画、首页「换一批」卡片刷新动画、歌词换行时字号/字重/颜色与上下滚动（`lyricScroll`：换行前量下一句的位置，列表跳转那一帧按老位置绘制再滑到新位置） | `pageOut`/`pageSpring`、`lyricsSpring`、`genieShader`/`genieCover`/`genieValues`、`queueOut`/`panelIn`/`panelOut`/`sideSpring`、`menuOut`/`menuMotion`、`popupUp`/`popupRise`/`popupMotion`、`appear`、`presence`、`tabMotion`、`cardOut`/`cardSpring`、`refreshMotion`、`lyricGrow`/`lyricFade`/`lyricWash`/`lyricSlide`、`lyricScroll` |
+| `motion.go` | 页面/歌词/队列的进入退出动画（页面用 `pageTransition`：上一页直接换掉，新页上移 16px 进场不淡入，也不留拷贝，免得两页重叠；歌曲列表的行另有 `rowsMotion` 逐行入场）、歌词以 genie 效果收放（`genieShader` 按封面位置把整页弯折收缩）、面板从房间边缘滑入滑出、锚点上方的菜单升起落下、歌手页页签行级动画、首页「换一批」卡片刷新动画、歌词换行时字号/字重/颜色与上下滚动（`lyricScroll`：换行前量下一句的位置，列表跳转那一帧按老位置绘制再滑到新位置） | `pageTransition`、`rowsMotion`/`rowsOut`/`rowsSpring`、`lyricsSpring`、`genieShader`/`genieCover`/`genieValues`、`queueOut`/`panelIn`/`panelOut`/`sideSpring`、`menuOut`/`menuMotion`、`popupUp`/`popupRise`/`popupMotion`、`appear`、`presence`、`tabMotion`、`cardOut`/`cardSpring`、`refreshMotion`、`lyricGrow`/`lyricFade`/`lyricWash`/`lyricSlide`、`lyricScroll` |
 | `skeleton.go` | 各种加载骨架屏 | `skeleton`、`bone`、`bar`、`headingSkeleton`、`songCardsSkeleton`、`forYouSkeleton`、`playlistSkeleton`、`singerSkeleton`、`topChartsSkeleton`、`chipsSkeleton`、`songRowsSkeleton`、`listSkeleton`、`lyricsSkeleton`、`commentsSkeleton` |
 | `memory.go` | 延迟把 Go 堆内存归还系统 | `trimmer`、`trimDelay`（3s）、`soon` |
 | `app_test.go` | 无窗口 UI 测试与联网页面走查 | `fakePlatform`、`newTestApp`、`settle`、`shot`、`TestPages`、`TestLRC`、`TestModeMenu`、`TestQualityMenu`、`TestSearchSinger`、`TestDisplayName`、`TestRecent`、`TestSearchHistory`、`TestComments` |
 | `behavior_test.go` | 离线特征测试（`offlineTransport` 让所有请求立即失败，不访问任何服务）：队列增删、四种模式切歌、失败跳过、音质徽章文字、持久化兼容（`testdata/v1.0.1/` 是 v1.0.1 写出的文件：仍可读、保存后可读回、`xyz.json` 迁移为 `xiaoyuzhou.json`、旧 `xyz_official` 生效、未知播放模式回退为默认）、猜你喜欢未登录时不改动原队列、搜索框作用域 | `newOfflineApp`、`drain`、`episodes`、`TestQueueEdits`、`TestNextPrev`、`TestPlayFailures`、`TestQualityLabel`、`TestPersistedFiles`、`TestPlayRadio`、`TestSearchScope`、`TestLogoutRadio`、`TestLikeRace`（`fakeLikes`：模拟服务端的「我喜欢」，控制读取的返回顺序）、`TestShowLabel`、`TestFrameBudget`（静止页不重建、播放中每秒约 4 次、歌词页约 10 次）、`TestPlayFromCache`（命中缓存不取播放地址、显示当时的实际音质、未登录不命中）、`TestSettings`（齿轮进入设置页并收起用户弹窗、改上限并保存、清空缓存）、`TestDownloadName`（下载文件名带歌名与地址的扩展名） |
 | `zz_feed_test.go` | 一次性探针：用 `%AppData%` 中的真实凭证请求首页信息流；带 `//go:build probe`，只在 `-tags probe` 时编译 | `TestZZFeed` |
-| `podcast_test.go` | 小宇宙页、节目页、搜索结果的离线 UI 测试；我听过的节目跨次启动保存 | `TestPodcasts`、`TestSearchPodcastsTab` |
+| `podcast_test.go` | 小宇宙页、节目页、搜索结果的离线 UI 测试；我听过的节目跨次启动保存；第一次打开时的来源选择与保存 | `TestPodcasts`、`TestSearchPodcastsTab`、`TestPodcastSource` |
 | `xiaoyuzhou_test.go` | 小宇宙官方的离线 UI 测试：未登录、来源切换、推荐/分类/榜单/编辑精选/订阅、不登录 QQ 音乐播放单集、节目页滚到底加载、节目页显示主播与订阅/取消订阅、主播页关注/取关、`xiaoyuzhou.json` 保存与退出 | `TestXiaoyuzhou` |
 | `palette_test.go` | 主色提取与 tint 的单元测试 | `TestDominantColor`、`TestTint` |
 | `motion_test.go` | 歌词换行滚动的测试：列表跳到下一句那一帧歌词仍画在原位、之后滑过一句的高度；歌词页量的是当前句的下句（含上方空白行偏移） | `TestLyricScroll`、`TestLyricScrollMeasuresTheComingLine` |
@@ -154,7 +154,8 @@
 | 登录弹窗的显示与三个页签 | `internal/app/view_login.go` + `internal/app/login.go` |
 | 歌手页的页签/排序/分页 | `internal/app/view_singer.go` |
 | 小宇宙（播客）页、节目页、播客搜索（在小宇宙页时顶栏搜索框只搜播客、不给歌曲联想） | `internal/app/view_podcast.go` + `internal/app/podcast.go`；接口见 `docs/qq音乐内置小宇宙接口指南.md` |
-| 小宇宙页的来源切换（QQ音乐/官方徽章与切换按钮） | `internal/app/view.go` 的 `podcastTitle`；`internal/app/nav.go` 的 `podcastHome`/`switchPodcasts`、`settings.XiaoyuzhouOfficial` |
+| 小宇宙页的来源切换（QQ音乐/官方徽章与切换按钮） | `internal/app/view.go` 的 `podcastTitle`；`internal/app/nav.go` 的 `podcastHome`/`choosePodcastSource`/`switchPodcasts`、`settings.XiaoyuzhouOfficial` |
+| 小宇宙第一次打开时的来源选择页（`pagePodcastStart`） | `internal/app/view_podcast.go` 的 `podcastStartPage`/`podcastSourceCard`；`settings.XiaoyuzhouChosen` |
 | 小宇宙官方（官方接口、扫码登录、节目页、主播页） | `internal/app/view_xiaoyuzhou.go` + `internal/app/xiaoyuzhou.go`；接口在 `internal/xiaoyuzhou`，资料见 `docs/小宇宙播客接口指南.md` |
 | 队列规则、切歌、播放模式 | `internal/playqueue/queue.go` |
 | 播放编排、音源、失败跳过、音量、音质徽章 | `internal/app/playback.go` |

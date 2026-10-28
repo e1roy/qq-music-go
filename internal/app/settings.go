@@ -39,8 +39,13 @@ type settings struct {
 	WinMax    bool `json:"win_max"`
 	// Whether 小宇宙 shows 小宇宙's own podcasts rather than QQ Music's.
 	XiaoyuzhouOfficial bool `json:"xiaoyuzhou_official"`
+	// Whether the user has picked one of the two: until they have, 小宇宙
+	// opens the page that asks, not either of them.
+	XiaoyuzhouChosen bool `json:"xiaoyuzhou_chosen"`
 	// OldOfficial is what v1.0.1 named XiaoyuzhouOfficial: read, never
-	// written.
+	// written. It was written whenever any setting was saved, so a file
+	// that has it is one whose source was already shown: it counts as
+	// chosen, not as a run to ask.
 	OldOfficial *bool `json:"xyz_official,omitempty"`
 	// How many GB the songs played whole may take on disk: 0 keeps none.
 	CacheGB int `json:"cache_gb"`
@@ -66,7 +71,8 @@ func (a *app) load() {
 		a.set.Mode = playqueue.Loop
 	}
 	if a.set.OldOfficial != nil {
-		a.set.XiaoyuzhouOfficial, a.set.OldOfficial = *a.set.OldOfficial, nil
+		a.set.XiaoyuzhouOfficial, a.set.XiaoyuzhouChosen = *a.set.OldOfficial, true
+		a.set.OldOfficial = nil
 	}
 	var cr qqmusic.Credential
 	if a.store.Load(fileCredential, &cr) && cr.MusicKey != "" {

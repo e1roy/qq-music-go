@@ -26,6 +26,7 @@ type songList struct {
 	loading bool
 	err     string
 	list    ui.ListState
+	rows    rowsMotion // the rows of the list as the page opens
 	// gen changes for the loads on the way to be dropped: as a singer's
 	// order changes, or a like changes 我喜欢.
 	gen int

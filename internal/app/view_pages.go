@@ -32,6 +32,8 @@ func (a *app) content(c *ui.Context) {
 		a.recentPage(c, p)
 	case pagePodcast:
 		a.podcastsPage(c)
+	case pagePodcastStart:
+		a.podcastStartPage(c)
 	case pageXiaoyuzhou:
 		a.xiaoyuzhouPage(c)
 	case pageXiaoyuzhouShow:
@@ -619,14 +621,14 @@ func (a *app) listPage(c *ui.Context, p page) {
 		a.showPage(c, p, l)
 		return
 	}
-	a.songTable(c, &l.list, l.songs, func() { a.listHeader(c, p, l) }, nil, true)
+	a.songTable(c, &l.list, l.songs, func() { a.listHeader(c, p, l) }, nil, &l.rows, p.key())
 }
 
 // recentPage shows 最近播放 as a playlist.
 func (a *app) recentPage(c *ui.Context, p page) {
 	l := &a.recentView
 	l.info.Title, l.songs = "最近播放", a.recent
-	a.songTable(c, &l.list, l.songs, func() { a.listHeader(c, p, l) }, nil, true)
+	a.songTable(c, &l.list, l.songs, func() { a.listHeader(c, p, l) }, nil, &l.rows, p.key())
 }
 
 func (a *app) listHeader(c *ui.Context, p page, l *songList) {
@@ -745,10 +747,12 @@ func (a *app) isPlaying(s qqmusic.Song) bool {
 	return ok && cur.Mid == s.Mid
 }
 
-// songTable shows songs as rows below a header, in one virtual list.
-func (a *app) songTable(c *ui.Context, ls *ui.ListState, songs []qqmusic.Song, header, footer func(), album bool) {
+// songTable shows songs as rows below a header, in one virtual list, whose
+// rows come in one after another as key is another list.
+func (a *app) songTable(c *ui.Context, ls *ui.ListState, songs []qqmusic.Song, header, footer func(), rows *rowsMotion, key any) {
 	extra := 2 // the header and the column titles
 	n := len(songs) + extra
+	rows.show(key)
 	if footer != nil {
 		n++
 	}
@@ -759,7 +763,7 @@ func (a *app) songTable(c *ui.Context, ls *ui.ListState, songs []qqmusic.Song, h
 		case i == 1:
 			a.columnTitles(c)
 		case i-extra < len(songs):
-			a.songRow(c, songs, i-extra)
+			rows.row(c, i-extra, a.songRow(c, songs, i-extra))
 		default:
 			footer()
 		}
@@ -798,7 +802,7 @@ func (a *app) columnTitles(c *ui.Context) {
 	})
 }
 
-func (a *app) songRow(c *ui.Context, songs []qqmusic.Song, i int) {
+func (a *app) songRow(c *ui.Context, songs []qqmusic.Song, i int) ui.Element {
 	s := songs[i]
 	playing := a.isPlaying(s)
 	row := ui.Row(c.Key(s.Mid+fmt.Sprint(i))).Margin(0, pagePadX).Padding(6, 16).Gap(16).AlignItems(ui.Center).Cursor(ui.CursorPointer)
@@ -863,6 +867,7 @@ func (a *app) songRow(c *ui.Context, songs []qqmusic.Song, i int) {
 		a.playList(songs, i)
 	}
 	row.ContextMenu(a.songMenu(s))
+	return row
 }
 
 // singerLinks shows the singers of a song, each a link to their page, in

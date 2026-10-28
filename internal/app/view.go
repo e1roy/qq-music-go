@@ -119,11 +119,7 @@ func (a *app) view(c *ui.Context) {
 	}
 	// The mouse's side buttons come as KeyBack and KeyForward, as do the
 	// browser keys of some keyboards. They are taken here, so that a key
-	// pressed as another is, but they go below, after the page shown is
-	// compared: a page that changed before it would come in the pass the
-	// key is taken in, which a frame builds again, at its place at once,
-	// without the pose that brings it. A click on the top bar's buttons
-	// changes the page after that comparison too.
+	// pressed as another is, and acted on below, where the page is built.
 	back := c.Shortcut(0, ui.KeyBack) || c.Shortcut(ui.Alt, ui.KeyLeft)
 	forward := c.Shortcut(0, ui.KeyForward) || c.Shortcut(ui.Alt, ui.KeyRight)
 
@@ -143,11 +139,9 @@ func (a *app) view(c *ui.Context) {
 				ui.Row(c).Grow(1).MinWidth(0).AlignItems(ui.Stretch).Background(colPanel).Clip().Draw(a.tint.band(tintHeight)).DrawOver(fadingPanelCorners).Children(func() {
 					ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 						// Each page is an element of its own, which comes in as it
-						// is first shown. The lyrics cover it, and the title bar,
-						// coming and going; once they do, neither needs building.
-						if p := a.current().key(); p != a.pageShown {
-							a.pageShown, a.pageIn = p, false
-						}
+						// is first shown; the page before is gone by then. The
+						// lyrics cover it, and the title bar, coming and going;
+						// once they do, neither needs building.
 						if back {
 							a.back()
 						}
@@ -155,8 +149,9 @@ func (a *app) view(c *ui.Context) {
 							a.forward()
 						}
 						if !a.showLyrics || !a.lyricsShow.rest {
-							pg := ui.Column(c.Key(a.pageShown)).Grow(1).MinHeight(0)
-							appear(c, pg, &a.pageIn, pageOut, pageSpring)
+							pg := ui.Column(c.Key(a.current().key())).Grow(1).MinHeight(0)
+							// Its Transition before its children, as its Key.
+							pg.Transition(pageTransition)
 							pg.Children(func() { a.content(c) })
 							// The title bar floats over the top of the page, which
 							// scrolls under it (pages start topHeight down). It used
@@ -872,7 +867,7 @@ func (a *app) sidebar(c *ui.Context) {
 			if navItem(c, icCompass, "音乐馆", cur.kind == pageDiscover || cur.kind == pageToplist).Clicked() {
 				a.navigate(page{kind: pageDiscover})
 			}
-			if navItem(c, icPodcast, "小宇宙", cur.kind == pagePodcast || cur.kind == pageXiaoyuzhou || cur.kind == pageXiaoyuzhouShow || cur.kind == pageXiaoyuzhouCategory || cur.kind == pageXiaoyuzhouUser).Clicked() {
+			if navItem(c, icPodcast, "小宇宙", cur.kind == pagePodcast || cur.kind == pagePodcastStart || cur.kind == pageXiaoyuzhou || cur.kind == pageXiaoyuzhouShow || cur.kind == pageXiaoyuzhouCategory || cur.kind == pageXiaoyuzhouUser).Clicked() {
 				a.navigate(a.podcastHome())
 			}
 			if navItem(c, icSearch, "搜索", cur.kind == pageSearch).Clicked() {

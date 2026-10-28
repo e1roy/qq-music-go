@@ -123,7 +123,7 @@ UI 线程：view(c) → 点击/快捷键 → app 方法 → a.do(work)
 - `enter(p)` 只在需要时触发首次加载。
 - 歌单/榜单/专辑/歌手页的数据放在 `app.lists[page.key()]`；最近播放用 `recentView`。
 - 我喜欢是 `page{kind: pagePlaylist, dirid: 201}`，自己的歌单 `id` 可能为 0、用 `dirid` 打开。
-- 侧边栏只有一个「小宇宙」入口，按 `settings.XiaoyuzhouOfficial` 打开 `pagePodcast`（QQ 音乐内置）或 `pageXiaoyuzhou`（官方，新装的默认值，见 `newApp`）；两页标题都由 `podcastTitle` 画：右上角徽章显示「QQ音乐」/「官方」，右侧按钮调 `switchPodcasts`，它原地替换当前页（不入历史栈）并保存设置。
+- 侧边栏只有一个「小宇宙」入口，按 `settings.XiaoyuzhouOfficial` 打开 `pagePodcast`（QQ 音乐内置）或 `pageXiaoyuzhou`（官方，新装的默认值，见 `newApp`）；还没选过（`settings.XiaoyuzhouChosen` 为假）时打开 `pagePodcastStart`，即 `podcastStartPage` 的来源选择页，选一个后 `choosePodcastSource` 写入设置并原地替换成对应页面（旧版本写的 `xyz_official` 视为已选，见 `load`）。两页标题都由 `podcastTitle` 画：右上角徽章显示「QQ音乐」/「官方」，右侧按钮调 `switchPodcasts`（同样走 `choosePodcastSource`），它原地替换当前页（不入历史栈）并保存设置。
 - 设置是 `pageSettings`（左下角用户行右侧的齿轮进入）：左侧分区菜单 `settingsSections`、右侧按 `a.settingsTab` 显示分区，目前只有「缓存」。新增设置分区时往 `settingsSections` 加一项并在 `settingsPage` 里分发，不要再往音质弹窗之类的地方塞设置项。
 - 小宇宙官方（原 beta）是 `pageXiaoyuzhou`（页签：推荐/发现/订阅更新/我的订阅），节目页是 `pageXiaoyuzhouShow`（`mid` 为小宇宙 pid），分类页是 `pageXiaoyuzhouCategory`（`mid` 为分类 id）。它直连小宇宙官方接口（`internal/xiaoyuzhou`），和 QQ 音乐内置的 `pagePodcast` 无关；单集作为 `qqmusic.Song` 进队列，`Source == "xiaoyuzhou"`（v1.0.1 写的 `"xyz"` 读取时自动转换）、`URL` 为音频直链（付费单集 `URL` 为空，播放时调 `PrivateMediaURL`），播放不需要登录 QQ 音乐、不走 `SongURL`，也不能加入「我喜欢」。
 - 小宇宙是 `pagePodcast`；播客节目复用 `pageAlbum`（有 mid 用 mid，只有 id 时用 `id`），`AlbumInfo.IsPodcast()` 时按页加载单集（`PodcastPage`=30，滚到底再取），不要改回全量循环（有的节目上万集）。
@@ -200,6 +200,8 @@ playList / playAt
 - 列表用 `ui.List` + 稳定 key；行内不要保存元素。
 - 滚动容器用 `ui.Scroll(...).TrackScroll(&state)`；页面滚动状态是 `a.main`。
 - 动画用 `appear`/`presence`/`tabMotion`；只改变绘制时用 `AnimatePose` + `AnimationFrame`，需要下一帧时用 `c.After`。
+- 页面的进场用 `motion.go` 的 `pageTransition`（`ui.ElementTransition` 的 `Enter`），不要用 `appear`：点击改页面发生在某一帧内，一次事件会再建一遍视图，而一帧只保留最后一次 `AnimatePose`，入场姿势会被同帧那次重建吃掉；Transition 在整帧布局后采样。`Enter` 要写 `Opacity: 1`（`ui.Motion` 的 `Opacity` 默认是 0，不写就成了淡入），也不要加 `Exit`：上一页留下的拷贝与新页同时画，两页的文字和卡片对不齐，看着像重影（`TestPageSwitchAnimates`）。
+- 歌曲列表的行另有逐行入场（`rowsMotion`：`songTable` 按页面 key、搜索按查询词 arm，行按 0–200ms 依次进场）。页面入场不要把行一起淡掉，否则看不出逐行；`TestRowsComeInOneByOne` 守着这一点。
 - `ui.ListState.ScrollTo` 是瞬跳，没有动画可设：歌词换行的上下滚动是 `motion.go` 的 `lyricScroll` —— 跳转前量出下一句离中间多远，跳转那一帧把各行 `Translate` 回原位再滑回去。行内的动画状态靠 `c.Key(i)` 的身份跨帧保留；测量用 `ui.Handle` + `.Bind`（`Handle.Bounds` 给上一帧的布局位置）。
 - 页面顶部渐变色由 `a.pageTint(coverURL)` 计算，经 `a.tint.band(tintHeight)` 绘制。
 

@@ -82,7 +82,7 @@ func (a *app) xiaoyuzhouHeader(c *ui.Context) {
 	ui.Row(c).Margin(6, 0, 4, 0).Gap(12).AlignItems(ui.Center).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			a.podcastTitle(c)
-			ui.Text(c, "直连小宇宙：推荐、分类、榜单、订阅与搜索").FontSize(13).TextColor(colMuted).SingleLine()
+			ui.Text(c, "在别人的故事里，听见自己的回声").FontSize(13).TextColor(colMuted).SingleLine()
 		})
 		if !x.api.LoggedIn() {
 			return

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -178,9 +179,8 @@ func TestBackToLyrics(t *testing.T) {
 }
 
 // TestHistoryKeyAnimates checks that going back by the mouse's side buttons
-// brings the page in as the top bar's button does, not at its place at
-// once: the key is taken in a frame that builds the view again, so a page
-// changed before that build would show there without the pose.
+// brings the page in from below, as the top bar's button does, not at its
+// place at once.
 func TestHistoryKeyAnimates(t *testing.T) {
 	a, _ := newOfflineApp(t, t.TempDir())
 	tt := ui.NewTester(a.view, 1280, 820)
@@ -202,9 +202,121 @@ func TestHistoryKeyAnimates(t *testing.T) {
 			moved++
 		}
 	}
-	if pixels := len(coming.Pix) / 4; moved < pixels/10 {
+	// A page 16 DIPs below its place moves the pixels of the text it shows,
+	// a twentieth of the window; at its place at once it moves none.
+	if pixels := len(coming.Pix) / 4; moved < pixels/20 {
 		t.Errorf("the page shows at its place %d pixels into %d: it did not come in", moved, pixels)
 	}
+}
+
+// TestPageSwitchAnimates checks that a page switched to comes in on its own:
+// the page is drawn a frame into it, none of the page before
+// drawn under it, and it is not at its place at once either.
+func TestPageSwitchAnimates(t *testing.T) {
+	a, _ := newOfflineApp(t, t.TempDir())
+	// 最近播放 of songs and 设置: two pages that show plenty, one of rows and
+	// one of text, both without asking anything.
+	for i := range 40 {
+		a.recent = append(a.recent, qqmusic.Song{Mid: fmt.Sprint(i), Name: fmt.Sprintf("歌曲 %d", i+1), Interval: 240})
+	}
+	tt := ui.NewTester(a.view, 1280, 820)
+	a.navigate(page{kind: pageRecent, title: "最近播放"})
+	tt.Frame()
+	tt.Advance(time.Second)
+	before := tt.Image()
+
+	a.navigate(page{kind: pageSettings})
+	tt.Frame()
+	tt.Advance(50 * time.Millisecond)
+	coming := tt.Image()
+	tt.Advance(time.Second)
+	rest := tt.Image()
+
+	// Drawn a frame into the switch, and on its way: it is not the page it
+	// settles in, and were the page before drawn under it, it would be.
+	area := pageArea(rest)
+	if shown, drawn := litPixels(coming, area), litPixels(rest, area); drawn == 0 || shown < drawn*3/4 {
+		t.Errorf("the page is not drawn a frame into the switch: %d lit pixels, against %d", shown, drawn)
+	}
+	moved, settled := changedPixels(coming, rest), changedPixels(before, rest)
+	if settled == 0 {
+		t.Fatal("the pages show alike")
+	}
+	if moved < settled/10 {
+		t.Errorf("the page is at its place at once: %d pixels of %d", moved, settled)
+	}
+	if changedPixels(coming, before) < settled/2 {
+		t.Error("the page before is drawn under the one arriving")
+	}
+}
+
+// TestRowsComeInOneByOne checks that the rows of a song list come in one
+// after another, from the top: the bottom rows are still to come while the
+// top ones are in, and the page above moves meanwhile.
+func TestRowsComeInOneByOne(t *testing.T) {
+	a, _ := newOfflineApp(t, t.TempDir())
+	for i := range 40 {
+		a.recent = append(a.recent, qqmusic.Song{Mid: fmt.Sprint(i), Name: fmt.Sprintf("歌曲 %d", i+1), Interval: 240})
+	}
+	tt := ui.NewTester(a.view, 1280, 820)
+	a.navigate(page{kind: pageSettings})
+	tt.Frame()
+	tt.Advance(time.Second)
+
+	a.navigate(page{kind: pageRecent, title: "最近播放"})
+	tt.Frame()
+	tt.Advance(60 * time.Millisecond)
+	early := tt.Image()
+	tt.Advance(time.Second)
+	rest := tt.Image()
+
+	// The rows of the top of the list, and those of its bottom.
+	top, bottom := image.Rect(270, 260, 1240, 400), image.Rect(270, 540, 1240, 680)
+	if lit := litPixels(rest, top); lit == 0 {
+		t.Fatal("the top rows show nothing")
+	}
+	if lit := litPixels(early, top); lit < litPixels(rest, top)/2 {
+		t.Errorf("the top rows are not in at 60 ms: %d lit pixels, against %d", lit, litPixels(rest, top))
+	}
+	if lit := litPixels(early, bottom); lit > litPixels(rest, bottom)/4 {
+		t.Errorf("the bottom rows came in with the top ones: %d lit pixels, against %d", lit, litPixels(rest, bottom))
+	}
+}
+
+// pageArea is the page area of a frame: between the sidebar and the edge,
+// under the title bar, where the pages draw.
+func pageArea(img *image.RGBA) image.Rectangle {
+	bounds := img.Bounds()
+	return image.Rect(bounds.Min.X+260, bounds.Min.Y+topHeight+8, bounds.Max.X-30, bounds.Max.Y-100)
+}
+
+// litPixels counts the lit pixels of a frame within r: text and pictures
+// stand out of the panel.
+func litPixels(img *image.RGBA, r image.Rectangle) int {
+	n := 0
+	for y := r.Min.Y; y < r.Max.Y; y += 2 {
+		for x := r.Min.X; x < r.Max.X; x += 2 {
+			c := img.RGBAAt(x, y)
+			if 0.299*float64(c.R)+0.587*float64(c.G)+0.114*float64(c.B) > 60 {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// changedPixels counts the pixels two frames of the page area tell apart.
+func changedPixels(a, b *image.RGBA) int {
+	r := pageArea(a)
+	n := 0
+	for y := r.Min.Y; y < r.Max.Y; y += 2 {
+		for x := r.Min.X; x < r.Max.X; x += 2 {
+			if a.RGBAAt(x, y) != b.RGBAAt(x, y) {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 func TestQueueEdits(t *testing.T) {
@@ -439,8 +551,10 @@ func TestPersistedFiles(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, e.Name()), b, 0o600)
 	}
 	a, f := newOfflineApp(t, dir)
+	// xyz_official, which v1.0.1 wrote, is a source already shown: it counts
+	// as chosen, so the run after the update does not ask again.
 	want := settings{Volume: 0.5, Quality: qqmusic.High, Mode: playqueue.Shuffle, MineClosed: true, Searches: []string{"晴天"},
-		WinX: 10, WinY: 20, WinWidth: 1100, WinHeight: 780, XiaoyuzhouOfficial: true, CacheGB: 2}
+		WinX: 10, WinY: 20, WinWidth: 1100, WinHeight: 780, XiaoyuzhouOfficial: true, XiaoyuzhouChosen: true, CacheGB: 2}
 	if !reflect.DeepEqual(a.set, want) || a.volume != 0.5 {
 		t.Errorf("settings %+v, want %+v", a.set, want)
 	}
@@ -516,8 +630,8 @@ func TestPersistedFiles(t *testing.T) {
 
 	// QQ Music's 小宇宙, as v1.0.1 wrote it, is kept against the default.
 	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"volume": 0.5, "xyz_official": false}`), 0o600)
-	if c, _ := newOfflineApp(t, dir); c.set.XiaoyuzhouOfficial || c.set.OldOfficial != nil {
-		t.Fatalf("official %v, old %v", c.set.XiaoyuzhouOfficial, c.set.OldOfficial)
+	if c, _ := newOfflineApp(t, dir); c.set.XiaoyuzhouOfficial || c.set.OldOfficial != nil || !c.set.XiaoyuzhouChosen {
+		t.Fatalf("official %v, old %v, chosen %v", c.set.XiaoyuzhouOfficial, c.set.OldOfficial, c.set.XiaoyuzhouChosen)
 	}
 
 	// Without a folder, nothing is written anywhere.

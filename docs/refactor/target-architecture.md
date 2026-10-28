@@ -163,7 +163,7 @@ go list -deps ./internal/playqueue ./internal/store | grep -E 'mygo|internal/app
 | 持久化数据 | 设置、凭证、最近播放、队列、听过的节目、小宇宙登录 | app（内存为准），`store` 负责落盘 | `settings.go` 意图方法、`addRecent`、`playback` 编排、`hearShow`、会话方法 | 进程启动时读一次；变化时写 |
 | 业务临时状态 | 队列位置、失败计数、代际号、`podcast.known` | `playqueue.Queue` / app | 编排方法 | 进程内 |
 | 页面数据缓存 | `home`、`lists[page]`、`search`、`xyz.shows` | app 各区域结构 | `loadXxx` / `moreXxx`（主线程回调） | 进程内，无过期；刷新按钮重载；失败保留旧数据 |
-| 展示状态 | 弹窗开关、动画、滚动、`pageShown` | 视图（存在 app 字段中，因 MyGo 需要持久） | 视图回调 | 进程内 |
+| 展示状态 | 弹窗开关、动画、滚动 | 视图（存在 app 字段中，因 MyGo 需要持久） | 视图回调 | 进程内 |
 | 派生数据 | 页面主色、`searchWords()`、`recentEpisodes()`、音质文字 | 不存储，每帧计算 | — | — |
 
 **重复副本要消除的**：`a.volume` 与 `a.set.Volume`（目前在 `saveSettings` 时同步）——保留现状，记录为已知双写，在 `settings.go` 中集中处理即可，不改语义。

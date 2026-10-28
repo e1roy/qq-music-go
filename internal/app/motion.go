@@ -9,15 +9,33 @@ import (
 	"qqmusic/internal/qqmusic"
 )
 
-// Pages, the lyrics and the queue come in and go with poses, which move
-// them in frames that only paint, without building the view: a large page
-// moves as smoothly as a small one. Springs keep their velocity, so the
-// lyrics closed on the way up turn back smoothly.
+// Pages, the lyrics and the queue come in and go, in frames that only paint,
+// without building the view: a large page moves as smoothly as a small one.
+// Springs keep their velocity, so the lyrics closed on the way up turn back
+// smoothly. The lyrics and the panels are posed; a page is a Transition, and
+// comes on its own: the one it replaces is gone at once.
 
 var (
-	// A page rises a little as it fades in.
-	pageOut    = ui.Pose{Y: 16, Fade: 1}
-	pageSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 420 * time.Millisecond}}
+	// A page rises a little as it comes in. It is a Transition, not a pose:
+	// a click that changes the page is handled halfway through a frame,
+	// which builds the view again, and the last pose of a frame is the one
+	// kept, which would show the page at its place at once. A Transition is
+	// laid out once the frame is built, how many passes it took.
+	//
+	// Nothing of the page before is drawn under it, as an Exit would: two
+	// pages of cards and headings, which rarely line up, read as one over
+	// the other for as long as both show. A page changes at once, and comes
+	// in on its own.
+	pageTransition = ui.ElementTransition{
+		// Only the position animates: the page itself is laid out by every
+		// frame, its width following the room the queue takes.
+		Position: true,
+		// Opacity 1, not the default 0: it comes in without fading, for a
+		// page of a list brings its rows in one after the other (rowsMotion),
+		// which a fade would hide, showing them all at once as it cleared.
+		Enter:     &ui.Motion{Y: 10, Opacity: 1},
+		Animation: &ui.Animation{Spring: ui.SpringOptions{Duration: 210 * time.Millisecond}},
+	}
 
 	// The lyrics come out of the cover in the player bar as macOS's genie
 	// effect brings a window out of the Dock (genieShader), and go back into
@@ -338,6 +356,56 @@ func (m *tabMotion) row(c *ui.Context, tab singerTab, i int, fn func()) {
 	}
 	a := tabSpring
 	a.Delay = time.Duration(min(i, 8)) * 30 * time.Millisecond
+	el.AnimatePose(ui.Pose{}, a)
+}
+
+// The rows of a song list rise a little as they fade in, one after the
+// other, as a singer's tab does: a list shows its top rows first, and the
+// page they are in comes in meanwhile, which alone would bring them all in
+// at once.
+var (
+	// A little of the way there already: the rows brighten into place rather
+	// than appearing out of nothing, which reads as one wave of the page
+	// coming in, not a row after another as a machine would.
+	rowsOut    = ui.Pose{Y: 4, Fade: 0.8}
+	rowsSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 170 * time.Millisecond, Bounce: 0.1}}
+)
+
+// rowsMotion brings in the rows of a song list, as the page or the query
+// that shows them is another: those built as it starts come in, one after
+// the other, and those scrolled to later are just there.
+type rowsMotion struct {
+	key any          // the page or the query shown; pages and strings compare
+	at  time.Time    // when it started
+	in  map[int]bool // rows built
+}
+
+// show takes the page or the query of the list built: another one brings
+// its rows in again.
+func (m *rowsMotion) show(key any) {
+	if m.in != nil && m.key == key {
+		return
+	}
+	m.key, m.at, m.in = key, time.Time{}, map[int]bool{}
+}
+
+// row poses row i of the list, which comes in.
+func (m *rowsMotion) row(c *ui.Context, i int, el ui.Element) {
+	if m.at.IsZero() {
+		m.at = c.Now()
+	}
+	if !m.in[i] {
+		m.in[i] = true
+		if c.Now().Sub(m.at) < 250*time.Millisecond {
+			el.AnimatePose(rowsOut, rowsSpring)
+			c.AnimationFrame()
+			return
+		}
+	}
+	// Under the frames of the display, so that rows start a few to a frame
+	// and the wave runs rather than steps.
+	a := rowsSpring
+	a.Delay = time.Duration(min(i, 12)) * 8 * time.Millisecond
 	el.AnimatePose(ui.Pose{}, a)
 }
 

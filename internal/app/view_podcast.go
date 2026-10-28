@@ -8,6 +8,95 @@ import (
 	"qqmusic/internal/qqmusic"
 )
 
+// podcastStartPage is 小宇宙 the first time it is opened: which of the two
+// sources its podcasts come from, chosen once and kept.
+func (a *app) podcastStartPage(c *ui.Context) {
+	a.pageScroll(c, &a.main, tintNone, func() {
+		ui.Column(c).Margin(6, 0, 12, 0).Gap(4).Children(func() {
+			ui.Text(c, "小宇宙").FontSize(26).FontWeight(600).LetterSpacing(-0.6)
+			ui.Text(c, "先选一个节目来源，之后可随时在标题旁切换").FontSize(13).TextColor(colMuted).SingleLine()
+		})
+		ui.Row(c).Gap(16).AlignItems(ui.Stretch).MaxWidth(1000).Children(func() {
+			a.podcastSourceCard(c, true)
+			a.podcastSourceCard(c, false)
+		})
+	})
+}
+
+// podcastSourceCard is one of the two sources of 小宇宙 to choose between.
+// Both cards state the same three lines in the same order, so that what one
+// has and the other has not is read at a glance. The whole card chooses its
+// source, and lifts and grows a little under the pointer, as the one of the
+// two about to be taken.
+func (a *app) podcastSourceCard(c *ui.Context, official bool) {
+	ic, title, tag, tagColor := icSparkles, "官方小宇宙", "推荐", colAccent
+	about, use := "官方接口，内容最全", "使用官方小宇宙"
+	// The foot takes the primary color for the one recommended, and the
+	// face of an outline button for the other.
+	fg, bg, edge := colAccentFg, colAccent, colAccent
+	facts := [3][2]string{
+		{"内容", "推荐 · 榜单 · 订阅 · 搜索"},
+		{"登录", "小宇宙（扫码 / 手机号）"},
+		{"播放", "不用 QQ 音乐"},
+	}
+	if !official {
+		ic, title, tag, tagColor = icMusic, "QQ 音乐的小宇宙", "免登录", colMuted
+		about, use = "内置专区，打开即看", "使用 QQ 音乐的小宇宙"
+		fg, bg, edge = colText, colInputBg, colInput
+		facts = [3][2]string{
+			{"内容", "仅 QQ 音乐收录的节目"},
+			{"登录", "不需要"},
+			{"播放", "需要 QQ 音乐"},
+		}
+	}
+	card := ui.Column(c.Key(title)).Grow(1).Basis(0).Padding(20).Gap(12).Radius(radiusXl).Cursor(ui.CursorPointer)
+	pose := ui.Pose{}
+	if card.Hovered() {
+		// A spring, in frames that only paint: the card under the pointer
+		// comes forward and takes the accent's edge, the other one stays
+		// put, so that the two read as one of them about to be taken.
+		pose = ui.Pose{Y: -5, Scale: 1.025}
+		card.Background(colCardHover.Mix(colAccent, 0.05)).Border(1, colAccent.Alpha(0.7)).Shadow(0, 14, 34, 0, colShadow)
+		if official {
+			bg = colAccentH
+		} else {
+			bg = colInputBgH
+		}
+	} else {
+		card.Background(colCard).Border(1, colLine)
+	}
+	card.AnimatePose(pose, ui.Snappy)
+	card.OnClick(func() { a.choosePodcastSource(official) })
+	card.Children(func() {
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Size(38, 38).Radius(radiusMd).Center().Background(colHover).Children(func() {
+				ui.Icon(c, ic).FontSize(19).TextColor(colText)
+			})
+			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
+				ui.Text(c, title).FontSize(16).FontWeight(600).SingleLine()
+				ui.Text(c, about).FontSize(12).TextColor(colMuted).SingleLine()
+			})
+			badge(c, tag, tagColor)
+		})
+		ui.Box(c).FillWidth().Height(1).Background(colLine)
+		ui.Column(c).Gap(7).Children(func() {
+			for _, f := range facts {
+				ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
+					ui.Text(c, f[0]).FontSize(12).TextColor(colDim).Width(30).NoWrap()
+					ui.Text(c, f[1]).FontSize(13).Grow(1).MinWidth(0).LineHeight(1.4)
+				})
+			}
+		})
+		ui.Spacer(c)
+		// The foot is not a button of its own: the card is the choice, and
+		// this only says what taking it does.
+		foot := ui.Row(c).Height(34).Radius(radiusMd).Center().Children(func() {
+			ui.Text(c, use).FontSize(13).FontWeight(600).TextColor(fg)
+		})
+		foot.Background(bg).Border(1, edge)
+	})
+}
+
 // podcastsPage is 小宇宙: what the user listened to, the podcasts picked for
 // them and the shelves of QQ Music's podcasts, or what the title bar's box
 // found of them.

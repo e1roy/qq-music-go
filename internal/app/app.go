@@ -56,10 +56,7 @@ type app struct {
 	// Navigation.
 	history []page
 	future  []page
-	// Motion: the page shown, whether it came in, and the lyrics, the
-	// queue and the comments coming and going.
-	pageShown    page
-	pageIn       bool
+	// Motion: the lyrics, the queue and the comments coming and going.
 	lyricsShow   presence
 	queueShow    presence
 	commentsShow presence
@@ -113,6 +110,7 @@ type app struct {
 		err     string
 		hot     []string
 		list    ui.ListState
+		rows    rowsMotion // the rows of the songs found, as a query is new
 		gen     int
 		tab     searchTab
 		direct  *qqmusic.Direct // 直达, from the first page of the songs

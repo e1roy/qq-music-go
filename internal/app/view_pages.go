@@ -161,7 +161,8 @@ func (a *app) homePage(c *ui.Context) {
 					} else {
 						// Tighter than a page of its own: the feed has many
 						// sections, and its covers give way to them.
-						a.playlistGrid(c, sh.Playlists, 160, nil)
+						h.feedMotion[i].show(sh.Title)
+						a.playlistGrid(c, sh.Playlists, 160, &h.feedMotion[i])
 					}
 				})
 			}
@@ -184,7 +185,8 @@ func (a *app) homePage(c *ui.Context) {
 						playAllButton(c, func() { a.playList(h.newSongs, 0) })
 						ui.Spacer(c)
 					})
-					a.songCards(c, h.newSongs[:min(len(h.newSongs), 12)], nil)
+					h.newMotion.show("新歌首发")
+					a.songCards(c, h.newSongs[:min(len(h.newSongs), 12)], &h.newMotion)
 				})
 			}
 		})
@@ -465,6 +467,13 @@ func (a *app) playlistCard(c *ui.Context, p qqmusic.Playlist, pg page, title, su
 	return card
 }
 
+// discoverPane builds what the tab of 音乐馆 chosen shows, as an element of
+// its own: another tab brings it in as a page does, while the tabs above it
+// stay put.
+func (a *app) discoverPane(c *ui.Context, fn func()) {
+	pane(c, a.discoverTab, 14, fn)
+}
+
 // discoverTabs switches 音乐馆 between 排行榜 and 歌单广场, where its
 // title would be. Back from a chart, the tab is the one left.
 func (a *app) discoverTabs(c *ui.Context) {
@@ -487,36 +496,39 @@ func (a *app) squarePage(c *ui.Context) {
 	}
 	a.pageScroll(c, &a.main, a.pageTint(cover), func() {
 		a.discoverTabs(c)
-		ui.Row(c).Wrap().Gap(8).Children(func() {
-			for _, cat := range qqmusic.PlaylistCategories {
-				if toggle(c.Key(cat.ID), cat.Name, cat.ID == s.cat).Clicked() && cat.ID != s.cat {
-					s.cat = cat.ID
-					s.pls = nil
-					a.loadSquare(1)
-				}
-			}
-		})
-		if s.err != "" && len(s.pls) == 0 {
-			errorRow(c, s.err, func() { a.loadSquare(1) })
-			return
-		}
-		if len(s.pls) > 0 {
-			a.playlistGrid(c, s.pls, 190, nil)
-		}
-		switch {
-		case s.loading:
-			rows := 1
-			if len(s.pls) == 0 {
-				rows = 3
-			}
-			skeleton(c, func() { playlistSkeleton(c, a.columns(c, 190), rows) })
-		case len(s.pls) < s.total:
-			ui.Row(c).Justify(ui.Center).Padding(8).Children(func() {
-				if button(c, outline, nil, "加载更多").Clicked() {
-					a.loadSquare(s.page + 1)
+		a.discoverPane(c, func() {
+			ui.Row(c).Wrap().Gap(8).Children(func() {
+				for _, cat := range qqmusic.PlaylistCategories {
+					if toggle(c.Key(cat.ID), cat.Name, cat.ID == s.cat).Clicked() && cat.ID != s.cat {
+						s.cat = cat.ID
+						s.pls = nil
+						a.loadSquare(1)
+					}
 				}
 			})
-		}
+			if s.err != "" && len(s.pls) == 0 {
+				errorRow(c, s.err, func() { a.loadSquare(1) })
+				return
+			}
+			s.motion.show(s.cat)
+			if len(s.pls) > 0 {
+				a.playlistGrid(c, s.pls, 190, &s.motion)
+			}
+			switch {
+			case s.loading:
+				rows := 1
+				if len(s.pls) == 0 {
+					rows = 3
+				}
+				skeleton(c, func() { playlistSkeleton(c, a.columns(c, 190), rows) })
+			case len(s.pls) < s.total:
+				ui.Row(c).Justify(ui.Center).Padding(8).Children(func() {
+					if button(c, outline, nil, "加载更多").Clicked() {
+						a.loadSquare(s.page + 1)
+					}
+				})
+			}
+		})
 	})
 	// Load more on reaching the end.
 	if !s.loading && len(s.pls) > 0 && len(s.pls) < s.total && a.main.MaxY > 0 && a.main.Y >= a.main.MaxY-200 {
@@ -532,32 +544,34 @@ func (a *app) chartsPage(c *ui.Context) {
 	}
 	a.pageScroll(c, &a.main, a.pageTint(cover), func() {
 		a.discoverTabs(c)
-		if ch.loading && len(ch.groups) == 0 {
-			skeleton(c, func() {
-				a.topChartsSkeleton(c)
-				bone(c).Size(120, 18).Radius(radiusSm).Margin(8, 0, 0, 0)
-				playlistSkeleton(c, a.columns(c, 170), 2)
-			})
-			return
-		}
-		if ch.err != "" && len(ch.groups) == 0 {
-			errorRow(c, ch.err, func() { a.loadCharts() })
-			return
-		}
-		for gi, g := range ch.groups {
-			ui.Text(c.Key(gi), g.Name).FontSize(16).FontWeight(600).Margin(8, 0, 0, 0)
-			if gi == 0 {
-				a.topCharts(c, g.Lists)
-				continue
+		a.discoverPane(c, func() {
+			if ch.loading && len(ch.groups) == 0 {
+				skeleton(c, func() {
+					a.topChartsSkeleton(c)
+					bone(c).Size(120, 18).Radius(radiusSm).Margin(8, 0, 0, 0)
+					playlistSkeleton(c, a.columns(c, 170), 2)
+				})
+				return
 			}
-			cols := a.columns(c, 170)
-			ui.Grid(c.Key(g.Name)).Columns(cols).Gap(12).Children(func() {
-				for _, t := range g.Lists {
-					pg := page{kind: pageToplist, id: int64(t.TopID), title: t.Title}
-					a.playlistCard(c, qqmusic.Playlist{}, pg, t.Title, t.Period, t.Cover, t.ListenNum)
+			if ch.err != "" && len(ch.groups) == 0 {
+				errorRow(c, ch.err, func() { a.loadCharts() })
+				return
+			}
+			for gi, g := range ch.groups {
+				ui.Text(c.Key(gi), g.Name).FontSize(16).FontWeight(600).Margin(8, 0, 0, 0)
+				if gi == 0 {
+					a.topCharts(c, g.Lists)
+					continue
 				}
-			})
-		}
+				cols := a.columns(c, 170)
+				ui.Grid(c.Key(g.Name)).Columns(cols).Gap(12).Children(func() {
+					for _, t := range g.Lists {
+						pg := page{kind: pageToplist, id: int64(t.TopID), title: t.Title}
+						a.playlistCard(c, qqmusic.Playlist{}, pg, t.Title, t.Period, t.Cover, t.ListenNum)
+					}
+				})
+			}
+		})
 	})
 }
 
@@ -925,7 +939,7 @@ func (a *app) equalizer(c *ui.Context) {
 			b := ui.Box(c.Key(k)).Width(3).Background(colAccent).Radius(1)
 			h := float32(5)
 			if on {
-				v := b.Loop(k, time.Duration(500+k*170)*time.Millisecond, ui.Bounce(ui.EaseInOut))
+				v := b.Loop(k, eqBeat+time.Duration(k)*eqStep, ui.Bounce(ui.EaseInOut))
 				h = 3 + 11*v
 			}
 			b.Height(h)
@@ -934,7 +948,8 @@ func (a *app) equalizer(c *ui.Context) {
 }
 
 // songMenu builds the menu of a song, for a row's ContextMenu or a menu
-// button's Menu.
+// button's Menu. It is a platform menu, which opens at once: its motion is the
+// system's, as 动效设计文档.md §9 says.
 func (a *app) songMenu(s qqmusic.Song) func(m *ui.Menu) {
 	return func(m *ui.Menu) {
 		if m.Item("播放").Chosen() {

@@ -26,18 +26,20 @@ func (a *app) xiaoyuzhouPage(c *ui.Context) {
 			ui.Row(c).MarginY(6).Children(func() {
 				tabs(c, x.tab, false, a.showXiaoyuzhouTab, "推荐", "发现", "订阅更新", "我的订阅")
 			})
-			switch x.tab {
-			case xiaoyuzhouTabFeed:
-				a.xiaoyuzhouFeedTab(c)
-			case xiaoyuzhouTabDiscover:
-				a.xiaoyuzhouDiscoverTab(c)
-			case xiaoyuzhouTabInbox:
-				a.xiaoyuzhouEpisodes(c, x.inbox.items, nil, false)
-				pagerEnd(c, &x.inbox, "订阅的节目还没有更新", a.moreXiaoyuzhouInbox)
-			default:
-				a.xiaoyuzhouShowGrid(c, x.subs.items, nil)
-				pagerEnd(c, &x.subs, "还没有订阅节目", a.moreXiaoyuzhouSubs)
-			}
+			pane(c, x.tab, 14, func() {
+				switch x.tab {
+				case xiaoyuzhouTabFeed:
+					a.xiaoyuzhouFeedTab(c)
+				case xiaoyuzhouTabDiscover:
+					a.xiaoyuzhouDiscoverTab(c)
+				case xiaoyuzhouTabInbox:
+					a.xiaoyuzhouEpisodes(c, x.inbox.items, nil, false)
+					pagerEnd(c, &x.inbox, "订阅的节目还没有更新", a.moreXiaoyuzhouInbox)
+				default:
+					a.xiaoyuzhouShowGrid(c, x.subs.items, nil)
+					pagerEnd(c, &x.subs, "还没有订阅节目", a.moreXiaoyuzhouSubs)
+				}
+			})
 		}
 	})
 }

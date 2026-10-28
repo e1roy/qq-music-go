@@ -55,7 +55,7 @@ func (a *app) podcastSourceCard(c *ui.Context, official bool) {
 		// A spring, in frames that only paint: the card under the pointer
 		// comes forward and takes the accent's edge, the other one stays
 		// put, so that the two read as one of them about to be taken.
-		pose = ui.Pose{Y: -5, Scale: 1.025}
+		pose = sourceCardUp
 		card.Background(colCardHover.Mix(colAccent, 0.05)).Border(1, colAccent.Alpha(0.7)).Shadow(0, 14, 34, 0, colShadow)
 		if official {
 			bg = colAccentH
@@ -65,7 +65,7 @@ func (a *app) podcastSourceCard(c *ui.Context, official bool) {
 	} else {
 		card.Background(colCard).Border(1, colLine)
 	}
-	card.AnimatePose(pose, ui.Snappy)
+	card.AnimatePose(pose, hoverSpring)
 	card.OnClick(func() { a.choosePodcastSource(official) })
 	card.Children(func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
@@ -212,23 +212,25 @@ func (a *app) podcastResults(c *ui.Context) {
 			a.searchPodcasts("")
 		})
 	})
-	if s.tab == 0 {
-		f := &s.shows
-		if len(f.items) > 0 {
-			a.showGrid(c, f.items, 0)
+	pane(c, s.tab, 14, func() {
+		if s.tab == 0 {
+			f := &s.shows
+			if len(f.items) > 0 {
+				a.showGrid(c, f.items, 0)
+			}
+			cols := a.columns(c, 170)
+			podcastEnd(c, f, "节目", a.moreShows, func(rows int) { playlistSkeleton(c, cols, rows) })
+			return
 		}
-		cols := a.columns(c, 170)
-		podcastEnd(c, f, "节目", a.moreShows, func(rows int) { playlistSkeleton(c, cols, rows) })
-		return
-	}
-	f := &s.episodes
-	if len(f.items) > 0 {
-		ui.Row(c).AlignItems(ui.Center).Children(func() {
-			playAllButton(c, func() { a.playList(f.items, 0) })
-		})
-		a.songCards(c, f.items, nil)
-	}
-	podcastEnd(c, f, "单集", a.moreEpisodes, func(rows int) { a.songCardsSkeleton(c, rows) })
+		f := &s.episodes
+		if len(f.items) > 0 {
+			ui.Row(c).AlignItems(ui.Center).Children(func() {
+				playAllButton(c, func() { a.playList(f.items, 0) })
+			})
+			a.songCards(c, f.items, nil)
+		}
+		podcastEnd(c, f, "单集", a.moreEpisodes, func(rows int) { a.songCardsSkeleton(c, rows) })
+	})
 }
 
 // podcastEnd is the end of what a tab of the search of 小宇宙 found: its
@@ -371,6 +373,7 @@ func (a *app) hostGrid(c *ui.Context, hosts []qqmusic.Show) {
 // comes into view.
 func (a *app) showPage(c *ui.Context, p page, l *songList) {
 	n := len(l.eps)
+	l.rows.show(p.key())
 	ui.List(c, &l.list, 2+n+1, func(i int) {
 		switch {
 		case i == 0:
@@ -378,7 +381,7 @@ func (a *app) showPage(c *ui.Context, p page, l *songList) {
 		case i == 1:
 			a.episodeTitles(c)
 		case i-2 < n:
-			a.episodeRow(c, l, i-2)
+			l.rows.row(c, i-2, a.episodeRow(c, l, i-2))
 		default:
 			a.episodesEnd(c, p, l)
 		}
@@ -399,7 +402,7 @@ func (a *app) episodeTitles(c *ui.Context) {
 
 // episodeRow is episode i of a podcast's page: its number, title, date
 // and plays. A click plays the episodes from it.
-func (a *app) episodeRow(c *ui.Context, l *songList, i int) {
+func (a *app) episodeRow(c *ui.Context, l *songList, i int) ui.Element {
 	e := l.eps[i]
 	s := e.Song
 	playing := a.isPlaying(s)
@@ -472,6 +475,7 @@ func (a *app) episodeRow(c *ui.Context, l *songList, i int) {
 		a.playList(l.songs, i)
 	}
 	row.ContextMenu(a.songMenu(s))
+	return row
 }
 
 // episodesEnd is the end of a podcast's episodes: the next ones load as it

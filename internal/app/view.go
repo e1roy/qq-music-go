@@ -577,7 +577,7 @@ func (a *app) searchMenu(c *ui.Context, anchor ui.Element) {
 	if panel.Dismissed() {
 		s.open = false
 	}
-	s.menu.animate(c, panel, menuOut, menuOut, menuMotion)
+	s.menu.animate(c, panel, menuIn, menuOut, menuMotion)
 }
 
 // userArea is the user at the foot of the sidebar, with a menu, or a way

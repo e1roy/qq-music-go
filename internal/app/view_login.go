@@ -9,12 +9,19 @@ import (
 func (a *app) loginDialog(c *ui.Context) {
 	l := &a.login
 	wasOpen := l.open
+	if !wasOpen && l.open {
+		l.backdropIn, l.panelIn = false, false
+	}
 	ui.DialogBase(c, &l.open, func(backdrop, panel ui.Element) {
 		// shadcn's Dialog: a dim backdrop, the panel of the page's color with
-		// a border, a title and a line below it.
+		// a border, a title and a line below it. It comes in as it opens; the
+		// dialog library gives it no motion of its own, and none as it closes,
+		// which is a press of Escape away and reads as a dismiss.
 		backdrop.Background(ui.RGBA(0, 0, 0, 0.5))
+		appear(c, backdrop, &l.backdropIn, ui.Pose{Fade: 1}, dialogFade)
 		panel.Width(384).Padding(20).Gap(16).Radius(radiusXl).Background(colPanel).AlignItems(ui.Center).
 			Shadow(0, 16, 48, 0, ui.RGBA(0, 0, 0, 0.5)).Border(1, colLine)
+		appear(c, panel, &l.panelIn, ui.Pose{Y: 8, Fade: 1}, dialogSpring)
 		ui.Row(c).FillWidth().AlignItems(ui.Start).Gap(8).Children(func() {
 			ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 				ui.Text(c, "登录 QQ 音乐").FontSize(16).FontWeight(600)

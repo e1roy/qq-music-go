@@ -11,7 +11,7 @@ import (
 // hand with mygo.json's version when releasing (打包build.bat / .sh writes
 // mygo.json; nothing reads it back into the binary).
 const (
-	appVersion = "1.0.8"
+	appVersion = "1.0.9"
 	appRepo    = "https://github.com/e1roy/qq-music-go"
 )
 
@@ -37,14 +37,14 @@ func (a *app) settingsPage(c *ui.Context) {
 					}
 				}
 			})
-			ui.Column(c).Grow(1).MinWidth(0).MaxWidth(720).Gap(16).Children(func() {
+			pane(c, a.settingsTab, 16, func() {
 				switch a.settingsTab {
 				case 0:
 					a.cacheSettings(c)
 				case 1:
 					aboutSettings(c)
 				}
-			})
+			}).Grow(1).MinWidth(0).MaxWidth(720)
 		})
 	})
 }
@@ -90,7 +90,11 @@ func (a *app) cacheSettings(c *ui.Context) {
 		})
 		if limit > 0 {
 			ui.Box(c).FillWidth().Height(6).Radius(3).Background(colHover).Children(func() {
-				ui.Box(c).WidthPercent(float32(min(1, float64(max(a.cacheUsed, 0))/float64(limit))) * 100).FillHeight().Radius(3).Background(colAccent)
+				// The bar grows into what the cache takes rather than jumping
+				// there as it is counted.
+				bar := ui.Box(c).FillHeight().Radius(3).Background(colAccent)
+				used := float32(min(1, float64(max(a.cacheUsed, 0))/float64(limit))) * 100
+				bar.WidthPercent(bar.AnimateTo("used", used, sideSpring))
 			})
 		}
 		ui.Text(c, a.player.Cache.Dir()).FontSize(12).TextColor(colMuted).SingleLine()

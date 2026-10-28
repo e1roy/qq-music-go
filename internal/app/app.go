@@ -76,6 +76,7 @@ type app struct {
 		radarLoading    bool
 		radarMotion     refreshMotion // the cards coming in again after 换一批
 		newSongs        []qqmusic.Song
+		newMotion       refreshMotion // its cards coming in as the page opens
 		guess           []qqmusic.Song
 		dailyList       qqmusic.Playlist // 每日30首
 		daily           []qqmusic.Song
@@ -90,6 +91,7 @@ type app struct {
 		total   int
 		loading bool
 		err     string
+		motion  refreshMotion // the cards coming in as the category is another
 	}
 	charts struct {
 		loaded, loading bool
@@ -213,6 +215,8 @@ type app struct {
 		err     string
 		gen     atomic.Int64
 		webBusy bool
+		// The backdrop and the panel come in as the dialog opens, once.
+		backdropIn, panelIn bool
 	}
 
 	toasts []string // the messages toasted, which the view drops: toasts are off

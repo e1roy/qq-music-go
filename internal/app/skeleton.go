@@ -1,8 +1,6 @@
 package app
 
 import (
-	"time"
-
 	"github.com/egoist/mygo/ui"
 )
 
@@ -18,7 +16,7 @@ var (
 // skeleton builds fn's bones in a column that pulses.
 func skeleton(c *ui.Context, fn func()) ui.Element {
 	col := ui.Column(c).Gap(16)
-	col.Opacity(0.45 + 0.55*col.Loop("pulse", 1400*time.Millisecond, ui.Bounce(ui.EaseInOut)))
+	col.Opacity(0.45 + 0.55*col.Loop("pulse", pulseLoop, ui.Bounce(ui.EaseInOut)))
 	return col.Children(fn)
 }
 

@@ -61,6 +61,7 @@ var (
 	// The menu below the search box drops in from just above the anchor as
 	// it fades in, from its top-left corner, and goes back the same way:
 	// quicker than a page, as a menu is.
+	menuIn     = ui.Pose{Y: -6, Scale: 0.96}
 	menuOut    = ui.Pose{Y: -6, Scale: 0.96, Fade: 1}
 	menuMotion = ui.Animation{Spring: ui.SpringOptions{Duration: 160 * time.Millisecond}}
 
@@ -77,7 +78,7 @@ var (
 	// be seen as a slide over the fade, and bounce a little so that they
 	// are.
 	songSlide  = float32(96)
-	songSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 380 * time.Millisecond, Bounce: 0.1}}
+	songSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 300 * time.Millisecond, Bounce: 0.1}}
 
 	// The lyrics move from line to line as the song does: the one it
 	// reaches grows and brightens, and the one it leaves settles back. The
@@ -93,6 +94,24 @@ var (
 	// that the whole move reads as one.
 	lyricSlide = ui.Animation{Spring: ui.SpringOptions{Duration: 320 * time.Millisecond}}
 )
+
+// What a tab of a page shows comes in as another does, but only fading: the
+// tabs above it stay put and the page is already there, so nothing moves
+// under the pointer, which a slide would.
+var paneTransition = ui.ElementTransition{
+	Position:  true,
+	Enter:     &ui.Motion{Opacity: 0},
+	Animation: &ui.Animation{Duration: 160 * time.Millisecond},
+}
+
+// pane builds the content of a tab as an element of its own, keyed by the tab
+// shown: another tab brings it in, while the tabs above it stay put. gap is
+// that of the column the content of the page is in.
+func pane(c *ui.Context, key any, gap float32, fn func()) ui.Element {
+	el := ui.Column(c.Key(key)).Gap(gap)
+	el.Transition(paneTransition)
+	return el.Children(fn)
+}
 
 // genieShader draws the lyrics on their way into the cover in the player
 // bar, or out of it, as macOS's genie effect: first the sides bend in, down
@@ -316,7 +335,7 @@ func popupUp(c *ui.Context, p *presence, anchor ui.Element, open *bool, fn func(
 // What a singer's tab shows rises a little as it fades in, row after row.
 var (
 	tabOut    = ui.Pose{Y: 14, Fade: 1}
-	tabSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 380 * time.Millisecond}}
+	tabSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 300 * time.Millisecond}}
 )
 
 // tabMotion brings in the rows of a list below its header, as a tab
@@ -355,7 +374,7 @@ func (m *tabMotion) row(c *ui.Context, tab singerTab, i int, fn func()) {
 		}
 	}
 	a := tabSpring
-	a.Delay = time.Duration(min(i, 8)) * 30 * time.Millisecond
+	a.Delay = time.Duration(min(i, 8)) * 8 * time.Millisecond
 	el.AnimatePose(ui.Pose{}, a)
 }
 
@@ -409,27 +428,71 @@ func (m *rowsMotion) row(c *ui.Context, i int, el ui.Element) {
 	el.AnimatePose(ui.Pose{}, a)
 }
 
+// A row of the queue takes its room as it comes and gives it back as it
+// goes, so that the rows below slide rather than jump when one is added or
+// removed.
+var queueRow = ui.ElementTransition{
+	Animation: &ui.Animation{Duration: 200 * time.Millisecond},
+	Enter:     &ui.Motion{Collapse: true},
+	Exit:      &ui.Motion{Collapse: true},
+}
+
+// A dialog comes in as it opens: the backdrop fades, the panel rises a little
+// as it fades, quicker than a page as a modal is.
+var (
+	dialogFade   = ui.Animation{Spring: ui.SpringOptions{Duration: 160 * time.Millisecond}}
+	dialogSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 200 * time.Millisecond, Bounce: 0.1}}
+)
+
+// The cards of 小宇宙's sources come forward under the pointer, as the one
+// about to be taken: quicker than a page, as a hover is.
+var (
+	sourceCardUp = ui.Pose{Y: -5, Scale: 1.025}
+	hoverSpring  = ui.Animation{Spring: ui.SpringOptions{Duration: 200 * time.Millisecond, Bounce: 0.15}}
+)
+
 // 换一批 replaces the cards of a section: the new ones come up as they
 // fade in, one after the other, so the swap reads as a refresh.
 var (
 	cardOut    = ui.Pose{Y: 12, Fade: 1}
-	cardSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 380 * time.Millisecond}}
+	cardSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 300 * time.Millisecond}}
 )
 
 // refreshSpin is how long 换一批 turns its icon for a refresh whose data was
 // already there: one turn, so that it ends where it started.
 const refreshSpin = time.Second
 
+// What is still loading says so by breathing, slower than anything that
+// shows a change: the bones of a page pulse, and the bars of the equalizer
+// rise and fall at their own paces, so that they do not read as one.
+const (
+	pulseLoop = 1400 * time.Millisecond
+	eqBeat    = 500 * time.Millisecond
+	eqStep    = 170 * time.Millisecond
+)
+
 // refreshMotion brings in the cards of a section again once a new batch
 // replaces them, and turns the icon of 换一批 meanwhile.
 type refreshMotion struct {
-	in map[int]bool // cards already posed out for this batch
-	at time.Time    // when they started coming in
+	key any          // the page or the category shown; pages and strings compare
+	in  map[int]bool // cards already posed out for this batch
+	at  time.Time    // when they started coming in
 }
 
 // arm makes the cards come in at the next build.
 func (m *refreshMotion) arm() {
 	m.in, m.at = map[int]bool{}, time.Time{}
+}
+
+// show arms the cards as the list they show is another, as a page or a
+// category is: the first ones come in one after the other, as they do after
+// 换一批, and a page added to them does not.
+func (m *refreshMotion) show(key any) {
+	if m.in != nil && m.key == key {
+		return
+	}
+	m.key = key
+	m.arm()
 }
 
 // busy reports whether the cards are still coming in, so that the icon
@@ -457,7 +520,7 @@ func (m *refreshMotion) card(c *ui.Context, i int, card ui.Element) {
 		return
 	}
 	a := cardSpring
-	a.Delay = time.Duration(min(i, 8)) * 25 * time.Millisecond
+	a.Delay = time.Duration(min(i, 8)) * 8 * time.Millisecond
 	card.AnimatePose(ui.Pose{}, a)
 }
 

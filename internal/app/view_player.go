@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -659,6 +660,20 @@ func (a *app) episodeNotesView(c *ui.Context, s qqmusic.Song) {
 	})
 }
 
+// queueRowKeys tells the rows of the queue apart by what they play, so that a
+// row keeps its own as another goes above it: a song the queue holds twice is
+// told from the other by how many of it come before.
+func queueRowKeys(songs []qqmusic.Song) []string {
+	seen := make(map[songKey]int, len(songs))
+	keys := make([]string, len(songs))
+	for i, s := range songs {
+		k := keyOf(s)
+		seen[k]++
+		keys[i] = k.mid + "#" + strconv.Itoa(seen[k])
+	}
+	return keys
+}
+
 func (a *app) queuePanel(c *ui.Context) {
 	// A card on the right of the panel, below the title bar: the window
 	// controls go on over its top, which moves the window.
@@ -701,6 +716,7 @@ func (a *app) queuePanel(c *ui.Context) {
 			}
 			// The numbers are as wide as the longest, right aligned.
 			numWidth := float32(7*len(fmt.Sprint(len(a.queue.Songs()))) + 2)
+			keys := queueRowKeys(a.queue.Songs())
 			ui.List(c, &a.queueList, len(a.queue.Songs()), func(i int) {
 				s := a.queue.Songs()[i]
 				on := i == a.queue.Cur()
@@ -713,7 +729,8 @@ func (a *app) queuePanel(c *ui.Context) {
 				if i == len(a.queue.Songs())-1 {
 					bottom = 6
 				}
-				row := ui.Row(c.Key(i)).Margin(top, 6, bottom, 6).Padding(6, 6, 6, 8).Gap(10).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+				row := ui.Row(c.Key(keys[i])).Margin(top, 6, bottom, 6).Padding(6, 6, 6, 8).Gap(10).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+				row.Transition(queueRow)
 				hover := row.Hovered()
 				if hover || on {
 					row.Background(colHover)

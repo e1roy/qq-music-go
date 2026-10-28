@@ -31,16 +31,20 @@ func (a *app) searchPage(c *ui.Context) {
 		})
 		return
 	}
-	switch s.tab {
-	case foundSingers:
-		a.foundSingers(c)
-	case foundPlaylists:
-		a.foundPlaylists(c)
-	case foundPodcasts:
-		a.foundPodcasts(c)
-	default:
-		a.foundSongs(c)
-	}
+	tab := ui.Column(c.Key(s.tab)).Grow(1).MinHeight(0)
+	tab.Transition(paneTransition)
+	tab.Children(func() {
+		switch s.tab {
+		case foundSingers:
+			a.foundSingers(c)
+		case foundPlaylists:
+			a.foundPlaylists(c)
+		case foundPodcasts:
+			a.foundPodcasts(c)
+		default:
+			a.foundSongs(c)
+		}
+	})
 }
 
 // searchHeader is the top of every tab of the search page: what was

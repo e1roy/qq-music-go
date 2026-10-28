@@ -7,6 +7,14 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// appVersion and appRepo are shown in 关于. appVersion is kept in sync by
+// hand with mygo.json's version when releasing (打包build.bat / .sh writes
+// mygo.json; nothing reads it back into the binary).
+const (
+	appVersion = "1.0.7"
+	appRepo    = "https://github.com/e1roy/qq-music-go"
+)
+
 // settingsSections are the sections of 设置, a.settingsTab indexing them:
 // a menu on the left, as an admin's pages have, and the section chosen on
 // the right.
@@ -15,6 +23,7 @@ var settingsSections = []struct {
 	label string
 }{
 	{icDrive, "缓存"},
+	{icInfo, "关于"},
 }
 
 func (a *app) settingsPage(c *ui.Context) {
@@ -32,6 +41,8 @@ func (a *app) settingsPage(c *ui.Context) {
 				switch a.settingsTab {
 				case 0:
 					a.cacheSettings(c)
+				case 1:
+					aboutSettings(c)
 				}
 			})
 		})
@@ -104,6 +115,39 @@ func (a *app) cacheSettings(c *ui.Context) {
 			"单首超过上限 1/4 的歌曲不保存；没下载完就切走的歌曲不保存。",
 			"播客单集也会临时写到这里，播完即删除，不占用上限。",
 			"选「关闭」后不再保存新歌曲，已保存的会被删除。",
+		} {
+			ui.Text(c.Key(i), "· "+note).FontSize(12).TextColor(colMuted).LineHeight(1.5)
+		}
+	})
+}
+
+// aboutSettings is 关于: what the project is, where its source is, the
+// version running, and the disclaimer about data and accounts.
+func aboutSettings(c *ui.Context) {
+	settingsCard(c, "QQ音乐桌面版", "纯 Go 编写的 Windows / macOS 桌面 QQ 音乐客户端，原生绘制界面，无 WebView、无 cgo、无前端工程。", func() {
+		ui.Row(c).Gap(14).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Size(40, 40).Radius(radiusMd).Center().Background(colHover).Children(func() {
+				ui.Image(c, icLogo).Size(24, 24)
+			})
+			ui.Column(c).Gap(2).Children(func() {
+				ui.Text(c, "版本 "+appVersion).FontSize(14).FontWeight(600).FontFeatures("tnum")
+				ui.Text(c, "界面：MyGo · 音源：QQ 音乐网页端接口").FontSize(12).TextColor(colMuted)
+			})
+		})
+		ui.Row(c).Gap(8).Children(func() {
+			if button(c, outline, icExternal, "GitHub 仓库").Clicked() {
+				c.OpenURL(appRepo)
+			}
+		})
+		ui.Text(c, appRepo).FontSize(12).TextColor(colMuted).SingleLine()
+	})
+	settingsCard(c, "免责声明", "本项目为个人开发的开源学习项目，请阅读以下说明后使用。", func() {
+		for i, note := range []string{
+			"本项目与腾讯 / QQ 音乐无任何关联，未获得官方授权，仅供学习交流使用，请勿用于商业用途。",
+			"所用数据与接口来自 QQ 音乐网页端，接口随时可能变化或失效，不保证长期可用。",
+			"播放依赖用户自己登录的 QQ 账号，VIP / 付费内容仍需账号本身具备相应权限，本项目不提供也不协助绕过付费限制。",
+			"请支持正版音乐，购买正版会员；由此产生的一切纠纷与法律责任由使用者自行承担，与作者无关。",
+			"如本项目侵犯你的权益，请联系作者或提交 Issue，将第一时间处理（下架、修改等）。",
 		} {
 			ui.Text(c.Key(i), "· "+note).FontSize(12).TextColor(colMuted).LineHeight(1.5)
 		}

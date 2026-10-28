@@ -4,7 +4,7 @@
 
 ## 下载
 
-到 [Releases](https://github.com/e1roy/qq_music_go/releases) 取最新版本：
+到 [Releases](https://github.com/e1roy/qq-music-go/releases) 取最新版本：
 
 | 平台 | 文件 | 说明 |
 |---|---|---|

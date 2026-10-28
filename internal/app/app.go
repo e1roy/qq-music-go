@@ -201,7 +201,7 @@ type app struct {
 	lyricList        ui.ListState
 	lyricScroll      lyricScroll
 	lyricHold        time.Time // the user scrolled the lyrics: follow again after
-	queueList        ui.ListState
+	queueScroll      ui.ScrollState
 	lyricsBg         *ui.Bitmap // the cover behind the lyrics, kept as the next comes
 	lyricsTint       tintFade   // the color behind it
 

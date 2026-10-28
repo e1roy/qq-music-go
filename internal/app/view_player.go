@@ -717,48 +717,54 @@ func (a *app) queuePanel(c *ui.Context) {
 			// The numbers are as wide as the longest, right aligned.
 			numWidth := float32(7*len(fmt.Sprint(len(a.queue.Songs()))) + 2)
 			keys := queueRowKeys(a.queue.Songs())
-			ui.List(c, &a.queueList, len(a.queue.Songs()), func(i int) {
-				s := a.queue.Songs()[i]
-				on := i == a.queue.Cur()
-				// Room above the first row and below the last, off the
-				// card's edges.
-				var top, bottom float32
-				if i == 0 {
-					top = 6
-				}
-				if i == len(a.queue.Songs())-1 {
-					bottom = 6
-				}
-				row := ui.Row(c.Key(keys[i])).Margin(top, 6, bottom, 6).Padding(6, 6, 6, 8).Gap(10).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
-				row.Transition(queueRow)
-				hover := row.Hovered()
-				if hover || on {
-					row.Background(colHover)
-				}
-				row.Children(func() {
-					num := ui.Text(c, fmt.Sprint(i+1)).Width(numWidth).TextAlign(ui.End).FontSize(12).FontFeatures("tnum").TextColor(colDim)
-					if on {
-						num.TextColor(colAccent)
-					}
-					a.cover(c, s.Cover(150), 36, radiusSm)
-					ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
-						t := ui.Text(c, s.DisplayName()).FontSize(13).FontWeight(500).SingleLine()
-						if on {
-							t.TextColor(colAccent)
+			// A column rather than a List: the rows keep their own as another
+			// goes, so that one removed closes up and the rest slide rather
+			// than jump to their places. A queue is short enough for them all.
+			ui.Scroll(c).Grow(1).TrackScroll(&a.queueScroll).Children(func() {
+				ui.Column(c).Children(func() {
+					for i, s := range a.queue.Songs() {
+						on := i == a.queue.Cur()
+						// Room above the first row and below the last, off the
+						// card's edges.
+						var top, bottom float32
+						if i == 0 {
+							top = 6
 						}
-						a.singerLinks(c, s.Singers, 12)
-					})
-					if hover {
-						if iconButton(c, icClose, 14, colMuted, "移除").OnClick(func() { a.removeFromQueue(i) }).Valid() {
+						if i == len(a.queue.Songs())-1 {
+							bottom = 6
 						}
-					} else if on {
-						a.equalizer(c)
+						row := ui.Row(c.Key(keys[i])).Margin(top, 6, bottom, 6).Padding(6, 6, 6, 8).Gap(10).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+						row.Transition(queueRow)
+						hover := row.Hovered()
+						if hover || on {
+							row.Background(colHover)
+						}
+						row.Children(func() {
+							num := ui.Text(c, fmt.Sprint(i+1)).Width(numWidth).TextAlign(ui.End).FontSize(12).FontFeatures("tnum").TextColor(colDim)
+							if on {
+								num.TextColor(colAccent)
+							}
+							a.cover(c, s.Cover(150), 36, radiusSm)
+							ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
+								t := ui.Text(c, s.DisplayName()).FontSize(13).FontWeight(500).SingleLine()
+								if on {
+									t.TextColor(colAccent)
+								}
+								a.singerLinks(c, s.Singers, 12)
+							})
+							if hover {
+								if iconButton(c, icClose, 14, colMuted, "移除").OnClick(func() { a.removeFromQueue(i) }).Valid() {
+								}
+							} else if on {
+								a.equalizer(c)
+							}
+						})
+						if row.Clicked() {
+							a.playAt(i)
+						}
 					}
 				})
-				if row.Clicked() {
-					a.playAt(i)
-				}
-			}).Grow(1)
+			})
 		})
 	})
 }

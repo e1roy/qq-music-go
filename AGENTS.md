@@ -53,6 +53,7 @@
 | 正式打包（exe + NSIS 安装包） | `go tool mygo build` |
 | 开发模式一键脚本 | `.\启动run.bat`（即 `go tool mygo dev`：改代码保存后自动重编译重启，产物在 `.mygo/dev/`） |
 | 打包脚本 | `.\打包build.bat [x.y.z]`（传版本号会先写入 `mygo.json`；不传则用现有版本） |
+| macOS 打包并安装 | `./打包build.sh [x.y.z] [--universal] [--dmg] [--no-install] [--no-launch]`（打包 `build/darwin-<arch>/QQMusic.app`，替换 `/Applications/QQMusic.app` 并启动；`--universal` 出通用二进制，`--dmg` 另外生成 dmg） |
 | 发布 GitHub Release（先打包，见 §10.1） | `gh release create v<version> build/release/QQMusic_v<version>_Portable.exe build/release/QQMusic_v<version>_Setup.exe --title "QQ音乐桌面版 v<version>" --notes "…"` |
 | 接口冒烟测试（公开接口） | `go run ./cmd/probe` |
 | 扫码登录后测用户接口/播放地址 | `go run ./cmd/probe -login qq -cred cred.json` |
@@ -65,6 +66,7 @@
 - `build/windows-amd64/QQMusic.exe`
 - `build/release/QQMusic_v<version>_Portable.exe`
 - `build/release/QQMusic_v<version>_Setup.exe`
+- `build/darwin-<arch>/QQMusic.app`（macOS，`--dmg` 时同一目录还有 `<slug>-<version>-<arch>.dmg`）
 
 ## 4. Code Map
 

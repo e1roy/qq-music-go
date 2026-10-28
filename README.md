@@ -76,6 +76,15 @@ go tool mygo build --platform darwin/universal    # 产物在 build/darwin-unive
 
 得到 `QQMusic.app` 与 `qqmusic-<版本号>.dmg`（发布时改名为 `QQMusic_v<版本号>_macOS.dmg`，与 Windows 包的命名一致）。默认 ad-hoc 签名，只在本机可运行；要分发给别人，在 `mygo.json` 的 `macos.signingIdentity` 填 Developer ID，并配置 `macos.notarize` 公证。
 
+在 macOS 上也可以直接执行 `./打包build.sh`：打包本机架构的 `QQMusic.app`，替换 `/Applications/QQMusic.app`（旧的先关掉）并启动。可选参数：
+
+- `--universal`：Apple 芯片与 Intel 通用的二进制
+- `--dmg`：另外生成分发的 dmg
+- `--no-install`：只打包到 `build/darwin-<arch>/`，不安装
+- `--no-launch`：安装后不启动
+
+执行 `./打包build.sh 1.0.8` 可以指定版本号，版本号同样会写入 `mygo.json` 与 app 的元数据。
+
 在 Windows 上也可以直接双击 `启动run.bat`：它以开发模式（`go tool mygo dev`）启动，改动 Go 代码、`mygo.json` 或资源后会自动重新编译并重启，控制台里输入 `r` 回车强制重启、`q` 回车退出。双击 `打包build.bat` 打包，产物在 `build/release/`：
 
 - `QQMusic_v<版本号>_Portable.exe`：免安装，双击即可运行

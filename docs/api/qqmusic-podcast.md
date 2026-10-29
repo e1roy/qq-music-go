@@ -671,7 +671,7 @@ info[] = 演唱者 / 歌曲语种 / 唱片公司 / 歌词
 extras = { name, transname, subtitle, from, wikiurl }
 ```
 
-**没有单集简介、没有 shownotes、没有时间戳章节**。想要 shownotes 只能回小宇宙官方网页/接口（见 `小宇宙播客接口指南.md`），不建议为它再开一条通道。
+**没有单集简介、没有 shownotes、没有时间戳章节**。想要 shownotes 只能回小宇宙官方网页/接口（见 [`xiaoyuzhou.md`](xiaoyuzhou.md)），不建议为它再开一条通道。
 
 ## 11. 首页信息流里的小宇宙卡片
 
@@ -892,7 +892,7 @@ shelf:   { id, title_template, miscellany.moduleType, v_niche[].v_card[] }
 
 | 来源 | 用途 |
 |---|---|
-| 本仓库 `docs/小宇宙播客接口指南.md` | 小宇宙官方通道（API / 网页 `__NEXT_DATA__`），与本文的「QQ 音乐内置」互为补充 |
-| 本仓库 `docs/qq音乐分析指南.md` §10 | 小宇宙卡片、`CgiGetTrackInfo`、`AlbumDetail` 的首次实测 |
+| 本仓库 [`docs/api/xiaoyuzhou.md`](xiaoyuzhou.md) | 小宇宙官方通道（API / 网页 `__NEXT_DATA__`），与本文的「QQ 音乐内置」互为补充 |
+| 本仓库 [`docs/api/qqmusic-feed.md`](qqmusic-feed.md) §10 | 小宇宙卡片、`CgiGetTrackInfo`、`AlbumDetail` 的首次实测 |
 | `github.com/YAQMC/YAQMC` `docs/zh-CN/discover.md` | 指出 `getAreaHomePage`、`getRadioList`、`getCategoryAreaInCategoryPlaylist` 的存在，本文已逐个实测 |
 | QQ 音乐开放平台 `ILongAudioAPI` | 长音频的产品概念（分类 / 榜单 / 推荐 / 收藏），对应的是同一批曲库数据 |

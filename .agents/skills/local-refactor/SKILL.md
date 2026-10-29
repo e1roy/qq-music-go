@@ -11,7 +11,7 @@ description: 对本仓库的 Go + MyGo 桌面客户端执行分阶段、可验�
 
 ## 开工前
 
-1. 读 `AGENTS.md`（§2 硬性约束、§3 命令、§8 已知坑）、`CODEMAP.md` 与 `references/refactor-playbook.md`。
+1. 读 `AGENTS.md`（§2 硬性约束、§3 代码规范）、`docs/dev/pitfalls.md`（已知坑）、`docs/dev/codemap.md` 与 `references/refactor-playbook.md`。
 2. 跑 `git status`。工作区已有未提交改动时，先确认是否在其上重构；不得覆盖、回滚或提交用户的改动。
 3. 读 `docs/refactor/`。已有审计、决策、路线图时直接复用，不重复调查，也不推翻已记录的决策（D-xx）。
 4. 明确授权边界：默认只做结构重构、不改行为；方案获得确认前不修改业务代码。
@@ -32,10 +32,10 @@ description: 对本仓库的 Go + MyGo 桌面客户端执行分阶段、可验�
 
 - `internal/app` 保持**一个 Go 包**，包内按文件分层：视图（`view_*.go`）→ 编排（`app` 方法）→ 纯规则包与接口层。MyGo 视图需要直接读 `*app` 状态，拆包会迫使大量状态导出。
 - 视图只读状态、收集用户意图；不联网、不读写文件、不调用 `a.do(`（AGENTS.md §2.12）。
-- 编排在主线程改状态；耗时操作走 `a.do`，结果经 `platform.Post` 回到主线程，用代际号丢弃过期结果（AGENTS.md §5.2）。
+- 编排在主线程改状态；耗时操作走 `a.do`，结果经 `platform.Post` 回到主线程，用代际号丢弃过期结果（`docs/dev/architecture.md` §2）。
 - 只有「有不变量、可脱离 UI 测试」的规则才提成独立包（现有 `internal/playqueue`、`internal/store`）。`qqmusic`、`xiaoyuzhou`、`player` 已合格，不在重构范围内。
 - 不引入 UseCase 类型、DI 框架、事件总线、Repository 大接口、页面注册表、ViewModel；不为假想需求建通用框架。
-- 删除或新建文件后同步更新 `CODEMAP.md`；架构约定变化同步更新 `AGENTS.md`。
+- 删除或新建文件后同步更新 `docs/dev/codemap.md`；架构约定变化同步更新 `docs/dev/architecture.md` / `conventions.md`，硬性约束变化才改 `AGENTS.md`。
 
 ## 执行循环（单个重构单元）
 
@@ -49,7 +49,7 @@ description: 对本仓库的 Go + MyGo 桌面客户端执行分阶段、可验�
 
 ## 验证
 
-在模块根目录执行（完整命令表见 `AGENTS.md` §3）：
+在模块根目录执行（完整命令表见 `docs/dev/commands.md`）：
 
 ```powershell
 $env:CGO_ENABLED = "0"
@@ -61,7 +61,7 @@ $env:CGO_ENABLED = "1"; go test -race -short -count=1 ./internal/app ./internal/
 ```
 
 - 视图层依赖检查（辅助手段，不是门禁）：`grep -nE 'a\.do\(|\bos\.|\bjson\.|\.api\.[A-Za-z]+\(' internal/app/view*.go`。不要为了通过它新增只转发一次的包装方法。
-- 新增测试必须离线：用 `offlineTransport`（`behavior_test.go`）、`episodes(...)`、`fakeLikes`（AGENTS.md §6.5）。联网测试加 `testing.Short()` 跳过。
+- 新增测试必须离线：用 `offlineTransport`（`behavior_test.go`）、`episodes(...)`、`fakeLikes`（`docs/dev/conventions.md` §5）。联网测试加 `testing.Short()` 跳过。
 - 布局/交互改动：`$env:SHOTS="C:\shots"; go test ./internal/app -run TestPages -v` 截图走查，并实际启动一次窗口。
 - 不要用 `go test ./...` 做回归（会联网）；不要批量请求 `SongURL` 等登录接口，触发 `104009` 后立即停止（AGENTS.md §2.11）。
 - 持久化格式改动必须过 `TestPersistedFiles`（`testdata/v1.0.1/` 是旧版本写出、已脱敏的固件，不要重新生成）。
@@ -84,4 +84,4 @@ $env:CGO_ENABLED = "1"; go test -race -short -count=1 ./internal/app ./internal/
 
 - `references/refactor-playbook.md`：完整方法论（审计清单、抽象判断标准、阶段划分、可量化验收标准）。
 - `docs/refactor/*.md`：上一次重构的真实产物，可作为文档格式范例。
-- `AGENTS.md` §2、§3、§6、§8：硬性约束、命令、代码约定与已知坑。
+- `AGENTS.md` §2、§3：硬性约束与代码规范；`docs/dev/commands.md`、`conventions.md`、`pitfalls.md`：命令、代码约定与已知坑。

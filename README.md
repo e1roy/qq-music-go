@@ -24,11 +24,11 @@ xattr -dr com.apple.quarantine /Applications/QQMusic.app
 
 **推荐主页**：顶部问候，其下「今日为你推荐」是猜你喜欢私人电台与每日 30 首，再往下是「你的精选好歌」（私人雷达）与「你的歌单宝藏库」（个性化推荐歌单），两者都可「换一批」，底部为播放栏。
 
-![推荐主页](docs/main_page.png)
+![推荐主页](docs/images/main_page.png)
 
 **歌手页**：歌手资料、播放全部，歌曲与专辑两个页签，支持热门/最新排序与分页加载。
 
-![歌手页](docs/singer.png)
+![歌手页](docs/images/singer.png)
 
 ## 功能
 

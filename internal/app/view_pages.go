@@ -960,7 +960,7 @@ func (a *app) equalizer(c *ui.Context) {
 
 // songMenu builds the menu of a song, for a row's ContextMenu or a menu
 // button's Menu. It is a platform menu, which opens at once: its motion is the
-// system's, as 动效设计文档.md §9 says.
+// system's, as docs/dev/motion.md §9 says.
 func (a *app) songMenu(s qqmusic.Song) func(m *ui.Menu) {
 	return func(m *ui.Menu) {
 		if m.Item("播放").Chosen() {

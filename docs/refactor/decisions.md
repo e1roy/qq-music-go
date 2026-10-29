@@ -11,7 +11,7 @@
 
 ## D-02 只为「有不变量、可独立测试」的规则新建包：`playqueue`、`store`
 - **理由**：这两块能在不碰 UI 的前提下完整测试，并由编译器保证不依赖 UI。其他规则（音质文字、MRU、谓词）规模小，作为 app 包内纯函数即可。
-- **约束**：遵守 AGENTS.md §11.3——只用一次的逻辑不提前抽函数。`qualityLabel` 只用一次，但它是 AGENTS.md §8.7 定义的业务规则，抽出是为了单测，属于「藏着一块复杂东西」的例外。
+- **约束**：遵守 AGENTS.md §3.3——只用一次的逻辑不提前抽函数。`qualityLabel` 只用一次，但它是 docs/dev/pitfalls.md 第 7 条 定义的业务规则，抽出是为了单测，属于「藏着一块复杂东西」的例外。
 
 ## D-03 不引入 UseCase 类型
 - **理由**：编排操作多为 10-30 行，`*app` 方法已足够；UseCase 类型会让每个操作多一个结构体和构造函数，属于 refactor-playbook.md §4.1 所说的「机械创建大量 UseCase 类」。
@@ -72,7 +72,7 @@
 | 方案中的做法 | 实际做法 | 理由 |
 |---|---|---|
 | 保留 `playMode` 别名作为兼容层，Phase 4 删除 | 直接改用 `playqueue.Mode`（约 30 处，含测试） | 改动机械且一次完成，免去过渡层与其清理 |
-| 提取 `playQuality(s)` | 未提取，留在 `playAt` 中 | 只用一次、三行（AGENTS.md §11.3） |
+| 提取 `playQuality(s)` | 未提取，留在 `playAt` 中 | 只用一次、三行（AGENTS.md §3.3） |
 | 谓词 `needsQQLogin` / `isEpisode` | `fromQQ`、`isXyz`、`qqEpisode`；「节目」文案处写 `a.qqEpisode(s) \|\| isXyz(s)` | 名字对应实际概念：是否 QQ 音乐的歌、是否小宇宙单集、是否已知的 QQ 播客；组合判断只用一次，内联 |
 | U8：播放字段归入子结构 | 只重排并分组注释 | 子结构需改数百处字段访问，收益是同样的所有权说明 |
 | U9：滚动加载统一为 `ensureXxx` | 只改文档 | 现有方法已是幂等的加载入口，改名无实际收益 |
@@ -83,13 +83,13 @@
 | # | 审查发现 | 处理 |
 |---|---|---|
 | 1 | `playRadio` 在 `playList` 未替换队列时仍把旧队列标为电台（重构前就有） | `playList` 返回是否替换了队列，`playRadio` 只在替换后标记；`TestPlayRadio` |
-| 2 | settings.json 中越界的 `mode` 会让视图索引越界、每次启动都崩溃 | `load` 中校验一次，越界回退为列表循环（AGENTS.md §11.2 入口校验）；`TestPersistedFiles` 覆盖 |
+| 2 | settings.json 中越界的 `mode` 会让视图索引越界、每次启动都崩溃 | `load` 中校验一次，越界回退为列表循环（AGENTS.md §3.2 入口校验）；`TestPersistedFiles` 覆盖 |
 | 3 | `Restore` 不复制传入切片，后续增删会改写调用方的列表 | `Restore` 复制；`TestOwnSongs`（不复制时会失败，已实测） |
 | 4 | `Queue` 零值无效（cur=0 且无歌曲） | 内部改存「下标+1」，零值即空队列；删除 `Empty()`；`TestZero` |
 | 5 | 持久化黄金文件按字节固定，给模型加字段就会失败 | 改为 `TestPersistedFiles`：`testdata/v1.0.1/`（重构前代码写出的文件）仍可读，保存后可读回 |
 | 6 | 写盘非原子 | `store.Save` 先写 `.tmp`，再改名覆盖；失败时删除临时文件。不 Sync：保存在 UI 线程、每次切歌都写，FlushFileBuffers 在慢盘上会卡界面 |
 | 7 | `removeFromQueue` 重复了 `Remove` 的范围检查 | 只在 `Remove` 中检查；调用方用删除前后的长度判断是否删除 |
-| 8 | 只有一个调用方、无复杂逻辑的包装：`keepVolume`、`toggleFolded`、`setMode`、`nickname`、`streamURL` | 内联回调用处（AGENTS.md §11.3） |
+| 8 | 只有一个调用方、无复杂逻辑的包装：`keepVolume`、`toggleFolded`、`setMode`、`nickname`、`streamURL` | 内联回调用处（AGENTS.md §3.3） |
 | 9 | 视图规则靠按名字的 grep，包装方法只是改名绕过 | 规则收窄为「视图不联网、不读写文件」，grep 降为辅助；删除 `signedIn`、`xyzSignedIn`，视图直接读登录状态、在点击回调里 `saveSettings()` |
 | 10 | 删除正在播放的歌时 `queue.json` 写两次 | 该分支只由 `playAt` 保存一次 |
 

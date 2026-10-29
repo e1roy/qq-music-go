@@ -1,6 +1,6 @@
 # Code Map
 
-本仓库的项目地图（codemap）：目录总览、各包文件职责与关键符号、按任务快速定位。从 `AGENTS.md` 第 4 节拆出，单独维护；**新增/删除文件、新增页面或接口后同步更新本文件**。
+本仓库的项目地图（codemap）：目录总览、各包文件职责与关键符号、按任务快速定位。AGENTS.md 的文档索引指向这里；**新增/删除文件、新增页面或接口后同步更新本文件**。
 
 找「要改什么」看第 6 节，找某个文件或符号看对应包的表格。
 
@@ -21,6 +21,7 @@
 │   ├── xiaoyuzhou/   # 小宇宙官方接口客户端（扫码登录、发现、榜单、订阅、搜索、节目网页）
 │   ├── player/       # 边下载边解码的播放器（MP3 / FLAC / AAC）
 │   └── diag/         # 内存采样页 + net/http/pprof
+├── docs/             # 文档：dev/ 开发文档、api/ 接口资料、refactor/ 重构记录、images/ 截图（索引见 docs/README.md）
 ├── resources/        # 图标源文件与嵌入资源
 ├── mygo.json         # 应用名、identifier、版本号、入口、输出目录
 ├── 启动run.bat       # 开发模式启动（go tool mygo dev）
@@ -134,11 +135,14 @@
 | `resources/resources.go` | 嵌入 `logo.svg`、`icon-256.png`、`tray.png` | `LogoSVG`、`WindowIcon`、`TrayIcon` |
 | `resources/logo.svg`、`tray.svg` | 图标源文件；改完跑 `go run ./cmd/genicon` | — |
 | `.agents/skills/local-refactor/` | 重构 skill：开工前检查、阶段产物、本项目分层边界、单元执行循环与验证命令；方法论在 `references/refactor-playbook.md`（原 `REFACTOR.md`） | `local-refactor` |
-| `docs/refactor/` | 上一次重构的产物：审计、目标架构、路线图、决策记录、验证报告 | — |
 | `mygo.json` | `name` / `identifier` / `version` / `main` / `out`，打包脚本读取版本号 | — |
-| `qq音乐分析指南.md` | 推荐信息流（音乐盲盒 / 碎片时间 / 私荐歌单）的数据来源、分析方法、接口字段与实测结果 | — |
-| `小宇宙播客接口指南.md` | 小宇宙（Xiaoyuzhou FM）三条通道、鉴权与请求头、接口清单、返回字段、免登录网页通道与对接评估 | — |
-| `qq音乐内置小宇宙接口指南.md` | QQ 音乐内置播客（小宇宙内容）的专区/推荐/节目/单集/主播/播放/字幕接口与数据结构，含后续小宇宙模块的实现建议 | — |
+| `docs/README.md` | `docs/` 的目录索引与新文档放置规则 | — |
+| `docs/dev/` | 开发文档：本文件、架构（`architecture.md`）、约定（`conventions.md`）、改动指引（`howto.md`）、动效（`motion.md`）、已知坑（`pitfalls.md`）、命令（`commands.md`）、提交与发布（`release.md`）；入口是根目录 `AGENTS.md` | — |
+| `docs/refactor/` | 上一次重构的产物：审计、目标架构、路线图、决策记录、验证报告 | — |
+| `docs/images/` | README 用的截图 | — |
+| `docs/api/qqmusic-feed.md` | 推荐信息流（音乐盲盒 / 碎片时间 / 私荐歌单）的数据来源、分析方法、接口字段与实测结果 | — |
+| `docs/api/xiaoyuzhou.md` | 小宇宙（Xiaoyuzhou FM）三条通道、鉴权与请求头、接口清单、返回字段、免登录网页通道与对接评估 | — |
+| `docs/api/qqmusic-podcast.md` | QQ 音乐内置播客（小宇宙内容）的专区/推荐/节目/单集/主播/播放/字幕接口与数据结构，含后续小宇宙模块的实现建议 | — |
 
 ## 6. 按任务快速定位
 
@@ -153,10 +157,10 @@
 | 小宇宙单集简介（歌词页，加载与 HTML 转文字） | `internal/app/notes.go` + `internal/app/view_player.go` 的 `episodeNotesView`；接口 `internal/xiaoyuzhou/api.go` 的 `Episode`/`WebEpisode` |
 | 登录弹窗的显示与三个页签 | `internal/app/view_login.go` + `internal/app/login.go` |
 | 歌手页的页签/排序/分页 | `internal/app/view_singer.go` |
-| 小宇宙（播客）页、节目页、播客搜索（在小宇宙页时顶栏搜索框只搜播客、不给歌曲联想） | `internal/app/view_podcast.go` + `internal/app/podcast.go`；接口见 `docs/qq音乐内置小宇宙接口指南.md` |
+| 小宇宙（播客）页、节目页、播客搜索（在小宇宙页时顶栏搜索框只搜播客、不给歌曲联想） | `internal/app/view_podcast.go` + `internal/app/podcast.go`；接口见 `docs/api/qqmusic-podcast.md` |
 | 小宇宙页的来源切换（QQ音乐/官方徽章与切换按钮） | `internal/app/view.go` 的 `podcastTitle`；`internal/app/nav.go` 的 `podcastHome`/`choosePodcastSource`/`switchPodcasts`、`settings.XiaoyuzhouOfficial` |
 | 小宇宙第一次打开时的来源选择页（`pagePodcastStart`） | `internal/app/view_podcast.go` 的 `podcastStartPage`/`podcastSourceCard`；`settings.XiaoyuzhouChosen` |
-| 小宇宙官方（官方接口、扫码登录、节目页、主播页） | `internal/app/view_xiaoyuzhou.go` + `internal/app/xiaoyuzhou.go`；接口在 `internal/xiaoyuzhou`，资料见 `docs/小宇宙播客接口指南.md` |
+| 小宇宙官方（官方接口、扫码登录、节目页、主播页） | `internal/app/view_xiaoyuzhou.go` + `internal/app/xiaoyuzhou.go`；接口在 `internal/xiaoyuzhou`，资料见 `docs/api/xiaoyuzhou.md` |
 | 队列规则、切歌、播放模式 | `internal/playqueue/queue.go` |
 | 播放编排、音源、失败跳过、音量、音质徽章 | `internal/app/playback.go` |
 | 导航、新增页面的分派 | `internal/app/nav.go` |

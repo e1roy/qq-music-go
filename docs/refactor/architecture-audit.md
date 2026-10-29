@@ -143,7 +143,7 @@ HTTP JSON ──qqmusic/xyz 解析(flexInt/cleanIntro)──► 模型(Song/Play
 
 ### P-03 业务规则写在视图中：音质展示规则
 - **位置**：`view_player.go:119-137`
-- **证据**：AAC→「（无 MP3 音源）」、`Best` 或达到请求→只显示实际音质、请求无损未得→「（无损不可用）」、否则「（无高品质）」、小宇宙→「小宇宙」。这是 AGENTS.md §8.7 写明的业务规则，但只能通过 UI 测试验证。
+- **证据**：AAC→「（无 MP3 音源）」、`Best` 或达到请求→只显示实际音质、请求无损未得→「（无损不可用）」、否则「（无高品质）」、小宇宙→「小宇宙」。这是 docs/dev/pitfalls.md 第 7 条 写明的业务规则，但只能通过 UI 测试验证。
 - **方向**：提取为纯函数，单测覆盖 5 个分支；视图只显示结果。
 - **成本/风险**：S / 低。**置信度**：高。
 
@@ -215,7 +215,7 @@ HTTP JSON ──qqmusic/xyz 解析(flexInt/cleanIntro)──► 模型(Song/Play
 
 ### P-12 页面类型分派在 4 个 switch 中重复
 - **位置**：`app.go:569-599 enter`、`602-641 refresh`、`645-672 refreshing`、`view_pages.go:15-43 content`
-- **影响**：AGENTS.md §7.1 新增页面需要改 7 个地方；漏改 `refreshing` 只会让刷新按钮不转，不易被发现。
+- **影响**：docs/dev/howto.md §1 新增页面需要改 7 个地方；漏改 `refreshing` 只会让刷新按钮不转，不易被发现。
 - **方向**：考虑过「页面控制器接口 + 注册表」，但 12 种页面多数只有 1-3 行分支，引入接口会增加间接层且 Go 的 switch 本身可 grep。**建议保留**，只把三个 switch 放到同一个文件里相邻排列（见 D-08）。
 - **置信度**：高。
 
@@ -226,8 +226,8 @@ HTTP JSON ──qqmusic/xyz 解析(flexInt/cleanIntro)──► 模型(Song/Play
 - **成本/风险**：M / 低（机械，但 diff 大，应放在后期单独提交）。**置信度**：高。
 
 ### P-14 测试与检查基线的卫生问题
-- `internal/app/zz_feed_test.go:15-36`：读取真实 `%AppData%\QQMusicGo\credential.json` 访问线上接口，**没有** `testing.Short()` 跳过，`go test -short ./...` 也会用真实账号联网。违反 AGENTS.md §2.11 / §6.5。
-- `cmd/zz_podcast/main.go`：17 处无键结构体字面量，导致 `go vet ./...` 与 `go tool mygo vet .` 在基线上就失败（AGENTS.md §10 检查清单无法通过）。
+- `internal/app/zz_feed_test.go:15-36`：读取真实 `%AppData%\QQMusicGo\credential.json` 访问线上接口，**没有** `testing.Short()` 跳过，`go test -short ./...` 也会用真实账号联网。违反 AGENTS.md §2.11 / docs/dev/conventions.md §5。
+- `cmd/zz_podcast/main.go`：17 处无键结构体字面量，导致 `go vet ./...` 与 `go tool mygo vet .` 在基线上就失败（docs/dev/release.md 检查清单无法通过）。
 - `cmd/zz_feeddump`、`cmd/zz_podcast`、`zz_feed_test.go` 未出现在 CODEMAP.md 中，自述为一次性探针（「throwaway probe」）。
 - **方向**：需要你决定删除、加构建标签，还是给测试加 Short 跳过（D-09）。
 - **置信度**：高。
@@ -245,7 +245,7 @@ HTTP JSON ──qqmusic/xyz 解析(flexInt/cleanIntro)──► 模型(Song/Play
 - `platform` 接口（app.go:170-188）：已有两个真实实现（`desktop`、`fakePlatform`），正是测试所需的隔离点。
 - `images` 缓存通过构造参数注入 `fetch` / `post`（images.go:45），测试已利用这一点离线运行。
 - 视图中的界面临时状态（搜索框 `open/sel/focused`、弹窗开关）属于展示层，不需要迁出。
-- 「失败保留旧数据」「空结果与失败分开」等约定（AGENTS.md §6.2）在加载函数中执行得很一致。
+- 「失败保留旧数据」「空结果与失败分开」等约定（docs/dev/conventions.md §2）在加载函数中执行得很一致。
 - `qqmusic.Song` 作为跨来源曲目类型（P-06）。
 
 ## 7. 与现有文档的出入
@@ -253,7 +253,7 @@ HTTP JSON ──qqmusic/xyz 解析(flexInt/cleanIntro)──► 模型(Song/Play
 | 文档说法 | 实际 |
 |---|---|
 | AGENTS.md §2.4「禁止在构建视图时发请求」 | 滚动加载与 `tick` 都在构建期触发（P-11），属于事实上的惯例 |
-| AGENTS.md §10「`go tool mygo vet .` 无新增告警」 | 基线已失败（P-14） |
-| AGENTS.md §6.5「联网测试必须 Short 跳过」 | `TestZZFeed` 未遵守 |
+| docs/dev/release.md「`go tool mygo vet .` 无新增告警」 | 基线已失败（P-14） |
+| docs/dev/conventions.md §5「联网测试必须 Short 跳过」 | `TestZZFeed` 未遵守 |
 | CODEMAP.md 文件清单 | 缺少 `cmd/zz_feeddump`、`cmd/zz_podcast`、`internal/app/zz_feed_test.go` |
 | CODEMAP.md「小宇宙 beta」 | 界面上已称「官方」（`podcastTitle`），代码与文档仍混用 beta |

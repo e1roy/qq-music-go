@@ -113,7 +113,7 @@ func (a *app) logout() {
 }
 
 // toggleLike keeps 我喜欢 in step with the heart, which fills at once: an
-// optimistic change, with no motion of its own (动效设计文档.md §9).
+// optimistic change, with no motion of its own (docs/dev/motion.md §9).
 func (a *app) toggleLike(s qqmusic.Song) {
 	if !fromQQ(s) {
 		a.toast("小宇宙单集不能加入「我喜欢」")

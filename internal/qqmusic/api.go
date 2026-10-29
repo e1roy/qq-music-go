@@ -822,15 +822,31 @@ func (c *Client) Profile(ctx context.Context) (User, error) {
 	// Without the membership, the user is taken as no member.
 	var vip struct {
 		Identity struct {
-			VIP      int    `json:"vip"`
-			Overdate string `json:"overdate"`
+			VIP        int    `json:"vip"`        // 绿钻
+			Eight      int    `json:"eight"`      // 豪华绿钻
+			HugeVip    int    `json:"HugeVip"`    // 超级会员
+			Overdate   string `json:"overdate"`   // the end of 绿钻
+			EightEnd   string `json:"eightEnd"`   // the end of 豪华绿钻
+			HugeVipEnd string `json:"HugeVipEnd"` // the end of 超级会员
 		} `json:"identity"`
 		Send string `json:"send"`
 	}
 	if c.Call(ctx, Web, "VipLogin.VipLoginInter", "vip_login_base", map[string]any{}, &vip) == nil {
-		u.VIP = vip.Identity.VIP == 1
-		// overdate has the time of day, send only its date.
-		u.VIPEnd = vipEnd(vip.Identity.Overdate)
+		id := vip.Identity
+		u.VIP = id.VIP == 1 || id.Eight == 1 || id.HugeVip == 1
+		// The highest membership names the user; the ends of the lower
+		// ones stand in when it has none.
+		switch {
+		case id.HugeVip == 1:
+			u.VIPLevel, u.VIPEnd = SuperVIP, vipEnd(id.HugeVipEnd)
+		case id.Eight == 1:
+			u.VIPLevel, u.VIPEnd = LuxuryVIP, vipEnd(id.EightEnd)
+		case id.VIP == 1:
+			u.VIPLevel, u.VIPEnd = GreenVIP, vipEnd(id.Overdate)
+		}
+		if u.VIPEnd.IsZero() {
+			u.VIPEnd = vipEnd(id.Overdate)
+		}
 		if u.VIPEnd.IsZero() {
 			u.VIPEnd = vipEnd(vip.Send)
 		}

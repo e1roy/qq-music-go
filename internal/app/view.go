@@ -36,7 +36,8 @@ var (
 	colInputBgH  = ui.RGBA(255, 255, 255, 0.075) // --input/50
 	colRing      = ui.RGBA(115, 115, 115, 0.5)   // --ring/50, around what has the focus
 	colDanger    = ui.Hex("#ff6467")             // --destructive
-	colVIP       = ui.Hex("#f5c242")
+	colVIP       = ui.Hex("#f5c242")             // 豪华绿钻 and the VIP marks
+	colSVIP      = ui.Hex("#a78bfa")             // 超级会员
 	colShadow    = ui.RGBA(0, 0, 0, 0.35)
 )
 
@@ -618,7 +619,9 @@ func (a *app) userRow(c *ui.Context) {
 		nick = fmt.Sprint(a.api.Credential().MusicID)
 	}
 	sub := "QQ 音乐"
-	if a.user.VIP {
+	if name := a.user.VIPLevel.String(); name != "" {
+		sub = name
+	} else if a.user.VIP {
 		sub = "绿钻会员"
 	}
 	row.Children(func() {
@@ -635,41 +638,51 @@ func (a *app) userRow(c *ui.Context) {
 	// their badge, rather than the system's own menu below it.
 	popupUp(c, &a.userPopup, row, &a.userMenu, func(panel ui.Element) {
 		panel.AttachTo(row, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 6, 0).
-			Padding(4).Gap(1).Width(188).Radius(radiusLg).Background(colCard).Border(1, colLine).
+			Padding(6).Gap(1).Width(212).Radius(radiusLg).Background(colCard).Border(1, colLine).
 			Shadow(0, 8, 24, 0, colShadow)
 		item := func(key string, ic *ui.SVG, label string) ui.Element {
-			it := ui.Row(c.Key(key)).Padding(7, 8).Gap(8).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+			it := ui.Row(c.Key(key)).Padding(8, 10).Gap(10).Radius(radiusMd).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 			if it.Hovered() {
 				it.Background(colHover)
 			}
 			it.Children(func() {
-				ui.Icon(c, ic).FontSize(15).TextColor(colMuted)
+				ui.Icon(c, ic).FontSize(16).TextColor(colMuted)
 				ui.Text(c, label).FontSize(13)
 			})
 			return it
 		}
 		// The membership and until when it runs, above what the menu does.
-		info := ui.Row(c).Padding(7, 8).Gap(6).AlignItems(ui.Center)
-		if !a.user.VIP {
-			info.Children(func() {
-				ui.Text(c, "未开通绿钻会员").FontSize(12).TextColor(colMuted)
-			})
-		} else {
-			info.Children(func() {
-				ui.Text(c, "绿钻会员").FontSize(13).FontWeight(500).TextColor(colVIP)
-				end := "到期时间未知"
-				if !a.user.VIPEnd.IsZero() {
-					end = a.user.VIPEnd.Format("2006-01-02") + " 到期"
+		// Its icon and text line up with those of the items below.
+		info := ui.Row(c).Padding(8, 10).Gap(10).AlignItems(ui.Center)
+		info.Children(func() {
+			name, color, end := "未开通绿钻会员", colMuted, ""
+			if a.user.VIP {
+				name, color = "绿钻会员", colAccent
+				switch a.user.VIPLevel {
+				case qqmusic.LuxuryVIP:
+					name, color = "豪华绿钻", colVIP
+				case qqmusic.SuperVIP:
+					name, color = "超级会员", colSVIP
 				}
-				ui.Text(c, end).FontSize(12).TextColor(colMuted).NoWrap()
-			})
-		}
-		ui.Box(c).Height(1).Margin(3, 2).Background(colLine)
+				end = "到期时间未知"
+				if !a.user.VIPEnd.IsZero() {
+					end = "至 " + a.user.VIPEnd.Format("2006-01-02")
+				}
+			}
+			// The diamond is heavy at its top: it sits a pixel lower to look
+			// level with the text.
+			ui.Icon(c, icDiamond).FontSize(16).TextColor(color).Translate(0, 1)
+			ui.Text(c, name).FontSize(13).FontWeight(500).TextColor(color).NoWrap()
+			if end != "" {
+				ui.Text(c, end).FontSize(13).TextColor(colMuted).NoWrap()
+			}
+		})
+		ui.Box(c).Height(1).Margin(4, 0).Background(colLine)
 		if item("refresh", icRefresh, "刷新我的歌单").Clicked() {
 			a.userMenu = false
 			a.loadMine()
 		}
-		ui.Box(c).Height(1).Margin(3, 2).Background(colLine)
+		ui.Box(c).Height(1).Margin(4, 0).Background(colLine)
 		if item("logout", icLogout, "退出登录").Clicked() {
 			a.logout() // which closes this
 		}

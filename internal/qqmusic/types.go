@@ -270,11 +270,39 @@ type PodcastShelf struct {
 	Episodes []Song
 }
 
+// VIPLevel is a kind of membership, the highest one a user holds.
+type VIPLevel int
+
+const (
+	// NoVIP is a user who is no member.
+	NoVIP VIPLevel = iota
+	// GreenVIP is 绿钻.
+	GreenVIP
+	// LuxuryVIP is 豪华绿钻.
+	LuxuryVIP
+	// SuperVIP is 超级会员.
+	SuperVIP
+)
+
+func (l VIPLevel) String() string {
+	switch l {
+	case GreenVIP:
+		return "绿钻会员"
+	case LuxuryVIP:
+		return "豪华绿钻"
+	case SuperVIP:
+		return "超级会员"
+	}
+	return ""
+}
+
 // User is the profile of a logged-in user.
 type User struct {
 	Nick   string
 	Avatar string
 	VIP    bool
+	// VIPLevel is the highest membership the user holds, NoVIP for none.
+	VIPLevel VIPLevel
 	// VIPEnd is when the membership ends: the zero time for a user who is
 	// no member, or one whose end the service left out.
 	VIPEnd time.Time

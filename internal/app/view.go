@@ -648,6 +648,23 @@ func (a *app) userRow(c *ui.Context) {
 			})
 			return it
 		}
+		// The membership and until when it runs, above what the menu does.
+		info := ui.Row(c).Padding(7, 8).Gap(6).AlignItems(ui.Center)
+		if !a.user.VIP {
+			info.Children(func() {
+				ui.Text(c, "未开通绿钻会员").FontSize(12).TextColor(colMuted)
+			})
+		} else {
+			info.Children(func() {
+				ui.Text(c, "绿钻会员").FontSize(13).FontWeight(500).TextColor(colVIP)
+				end := "到期时间未知"
+				if !a.user.VIPEnd.IsZero() {
+					end = a.user.VIPEnd.Format("2006-01-02") + " 到期"
+				}
+				ui.Text(c, end).FontSize(12).TextColor(colMuted).NoWrap()
+			})
+		}
+		ui.Box(c).Height(1).Margin(3, 2).Background(colLine)
 		if item("refresh", icRefresh, "刷新我的歌单").Clicked() {
 			a.userMenu = false
 			a.loadMine()

@@ -822,13 +822,45 @@ func (c *Client) Profile(ctx context.Context) (User, error) {
 	// Without the membership, the user is taken as no member.
 	var vip struct {
 		Identity struct {
-			VIP int `json:"vip"`
+			VIP      int    `json:"vip"`
+			Overdate string `json:"overdate"`
 		} `json:"identity"`
+		Send string `json:"send"`
 	}
 	if c.Call(ctx, Web, "VipLogin.VipLoginInter", "vip_login_base", map[string]any{}, &vip) == nil {
 		u.VIP = vip.Identity.VIP == 1
+		// overdate has the time of day, send only its date.
+		u.VIPEnd = vipEnd(vip.Identity.Overdate)
+		if u.VIPEnd.IsZero() {
+			u.VIPEnd = vipEnd(vip.Send)
+		}
 	}
 	return u, nil
+}
+
+// vipTime is the zone the VIP service writes its dates in.
+var vipTime = time.FixedZone("CST", 8*60*60)
+
+// vipEnd reads the end of a membership as the VIP service gives it: a date
+// in Beijing time, with or without its time of day, or a Unix time of
+// seconds. It is the zero time for one it cannot read.
+func vipEnd(s string) time.Time {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "0" {
+		return time.Time{}
+	}
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		if n <= 0 {
+			return time.Time{}
+		}
+		return time.Unix(n, 0).In(vipTime)
+	}
+	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.ParseInLocation(layout, s, vipTime); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 func (c *Client) getWithLogin(ctx context.Context, u string) ([]byte, error) {

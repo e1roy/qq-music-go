@@ -1154,3 +1154,25 @@ func TestDownloadName(t *testing.T) {
 		t.Fatalf("files %v, error %q", entries, a.playErr)
 	}
 }
+
+// TestUserVIPEnd shows until when the membership runs in the account's
+// popup, and that a user who is no member has none.
+func TestUserVIPEnd(t *testing.T) {
+	a, _ := newOfflineApp(t, t.TempDir())
+	a.api.SetCredential(qqmusic.Credential{MusicID: 1, MusicKey: "k"})
+	a.user = qqmusic.User{Nick: "e1roy", VIP: true, VIPEnd: time.Date(2028, 2, 3, 10, 5, 49, 0, time.UTC)}
+	tt := ui.NewTester(a.view, 1280, 820)
+	tt.Frame()
+	if err := tt.Click("e1roy"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("2028-02-03 到期") {
+		t.Error("the popup does not show the end of the membership")
+	}
+	a.user = qqmusic.User{Nick: "e1roy"}
+	tt.Frame()
+	if !tt.HasText("未开通绿钻会员") || tt.HasText("2028-02-03 到期") {
+		t.Error("a non-member shows the end of a membership")
+	}
+}

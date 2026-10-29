@@ -5,6 +5,29 @@ import (
 	"testing"
 )
 
+// TestVIPEnd reads when a membership ends, as the VIP service gives it.
+func TestVIPEnd(t *testing.T) {
+	for in, want := range map[string]string{
+		"2028-02-03 10:05:49": "2028-02-03",
+		"2028-02-03":          "2028-02-03",
+		"1759383169":          "2025-10-02",
+		"":                    "",
+		"0":                   "",
+		"soon":                "",
+	} {
+		got := vipEnd(in)
+		if want == "" {
+			if !got.IsZero() {
+				t.Errorf("%q: %v, want the zero time", in, got)
+			}
+			continue
+		}
+		if got.Format("2006-01-02") != want {
+			t.Errorf("%q: %v, want %s", in, got, want)
+		}
+	}
+}
+
 // TestParseDirect reads zhida as the search sends it.
 func TestParseDirect(t *testing.T) {
 	singer := `{"list":[{"type":1,"title":"歌手: 毛不易","desciption":"歌曲:536 专辑:101 视频:1703","pic":"http://y.gtimg.cn/x.jpg",

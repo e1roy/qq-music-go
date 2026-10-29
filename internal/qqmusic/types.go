@@ -275,6 +275,9 @@ type User struct {
 	Nick   string
 	Avatar string
 	VIP    bool
+	// VIPEnd is when the membership ends: the zero time for a user who is
+	// no member, or one whose end the service left out.
+	VIPEnd time.Time
 }
 
 // Quality is a file format of a song. A higher one sounds better, so a

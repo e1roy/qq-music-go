@@ -85,7 +85,7 @@ playList / playAt
 - `loggedIn()`：保存凭证 → 拉 `Profile` → `loadMine` → `loadHome(true)`。
 - 小宇宙扫码（小宇宙官方页内，与 QQ 登录无关）：`newXiaoyuzhouQR` → `xiaoyuzhou.NewQR` → `pollXiaoyuzhouQR` 每 1.5s `PollQR`（离开页面即停）→ `xiaoyuzhouLoggedIn`。
 - 小宇宙手机号：`xiaoyuzhouPhoneLogin` → `desktop.OpenXiaoyuzhouLogin`（WebView2 打开 `xiaoyuzhou.LoginPage`）→ 每秒读 `xiaoyuzhoufm.com` 的 `x-jike-access-token`/`x-jike-refresh-token` Cookie → `SetTokens` → `xiaoyuzhouLoggedIn`。不要改成直接调短信接口：`send-code` 必须带阿里云验证码（`captcha`），只有浏览器能过。
-- 启动：`startSession()` 检查/刷新凭证 → `Profile` → `loadMine`；过期则清凭证并 toast。
+- 启动：`startSession()` 每次启动都续期一次凭证（`NeedsRefresh()` 只给探针用，不参与启动判断）→ `Profile` → `loadMine`；过期则清凭证并 toast。续期走 `music.login.LoginServer.Login` + `loginMode: 2`，`refresh_key` 本身也会过期，所以每次启动都换一次是延长免扫码时间的关键。
 
 ## 6. 持久化
 

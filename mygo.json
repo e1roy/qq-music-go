@@ -1,7 +1,7 @@
 {
   "name": "QQMusic",
   "identifier": "com.github.qqmusicgo",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "main": "./cmd/qqmusic",
   "out": "build"
 }

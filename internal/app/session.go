@@ -7,16 +7,15 @@ import (
 	"qqmusic/internal/qqmusic"
 )
 
-// startSession checks a saved login, refreshing it when it is old.
+// startSession checks a saved login, renewing it on every start: the
+// refresh key expires as well, so each launch is a chance to extend it.
 func (a *app) startSession() {
 	if !a.api.LoggedIn() {
 		return
 	}
 	a.loggingIn = true
 	a.do(func(ctx context.Context) func() {
-		if a.api.Credential().NeedsRefresh() {
-			a.api.Refresh(ctx)
-		}
+		a.api.Refresh(ctx)
 		u, err := a.api.Profile(ctx)
 		if errors.Is(err, qqmusic.ErrNotLoggedIn) {
 			if a.api.Refresh(ctx) == nil {

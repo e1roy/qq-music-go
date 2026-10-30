@@ -9,7 +9,22 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/image/draw"
 )
+
+func TestScalerFastPath(t *testing.T) {
+	im := newImages(nil, nil, func() {})
+	if got := im.scaler(imageSize{300, 300}, imageSize{500, 500}); got != draw.ApproxBiLinear {
+		t.Fatal("standard covers should use ApproxBiLinear")
+	}
+	if len(im.scalers) != 0 {
+		t.Fatal("the fast path should not retain a CatmullRom scaler")
+	}
+	if got := im.scaler(imageSize{301, 301}, imageSize{500, 500}); got == draw.ApproxBiLinear {
+		t.Fatal("large covers should keep CatmullRom")
+	}
+}
 
 func TestShrinkScaled(t *testing.T) {
 	src := image.NewRGBA(image.Rect(0, 0, 300, 200))
@@ -20,16 +35,19 @@ func TestShrinkScaled(t *testing.T) {
 			t.Errorf("side %d: got %dx%d", side, b.Dx(), b.Dy())
 		}
 	}
-	if len(im.scalers) != 2 {
-		t.Fatalf("scalers: got %d, want 2", len(im.scalers))
+	if len(im.scalers) != 0 {
+		t.Fatalf("scalers: got %d, want none for standard covers", len(im.scalers))
 	}
-	first := im.scaler(imageSize{36, 27}, imageSize{300, 200})
-	second := im.scaler(imageSize{36, 27}, imageSize{300, 200})
+	first := im.scaler(imageSize{320, 240}, imageSize{960, 720})
+	second := im.scaler(imageSize{320, 240}, imageSize{960, 720})
 	if first != second {
 		t.Fatal("the same size should reuse its scaler")
 	}
+	if len(im.scalers) != 1 {
+		t.Fatalf("scalers: got %d, want 1 after a large cover", len(im.scalers))
+	}
 	for i := range maxImageScalers + 2 {
-		im.scaler(imageSize{100 + i, 100}, imageSize{40, 40})
+		im.scaler(imageSize{400 + i, 400}, imageSize{40, 40})
 	}
 	if got := len(im.scalers); got != maxImageScalers {
 		t.Fatalf("scalers: got %d, want at most %d", got, maxImageScalers)

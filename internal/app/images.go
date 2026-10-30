@@ -60,6 +60,10 @@ const imageBudget = 48 << 20
 // many source aspect ratios, so keep only a bounded working set.
 const maxImageScalers = 32
 
+// Standard list and card covers are too small for CatmullRom's extra cost to
+// show; ApproxBiLinear avoids a large per-pixel kernel on every loaded cover.
+const approxScaleMaxSide = 300
+
 func newImages(fetch func(ctx context.Context, url string) ([]byte, error), post func(func()), loaded func()) *images {
 	return &images{
 		fetch: fetch, post: post, loaded: loaded, sem: make(chan struct{}, 6),
@@ -199,9 +203,13 @@ func shrinkScaled(img image.Image, side int, scaler func(dst, src imageSize) dra
 	return dst
 }
 
-// scaler returns Catmull-Rom's scaler for a fixed size, whose pool keeps
-// the temporary buffer for the next cover of that size.
+// scaler returns ApproxBiLinear for standard covers and a cached Catmull-Rom
+// scaler for large ones, whose pool keeps the temporary buffer for reuse.
 func (im *images) scaler(dst, src imageSize) draw.Scaler {
+	if max(dst.w, dst.h) <= approxScaleMaxSide {
+		return draw.ApproxBiLinear
+	}
+
 	im.scalerMu.Lock()
 	defer im.scalerMu.Unlock()
 	key := scalerSize{src, dst}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "QQMusic 性能审计"
+  short_description: "逐页执行 QQMusic 性能采样并保留可比较记录"
+  default_prompt: "Use $qqmusic-performance-audit to run the complete page-by-page QQMusic performance audit and record every result."

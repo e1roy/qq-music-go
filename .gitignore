@@ -3,6 +3,9 @@
 /.mygo/
 mygo_windows_*.syso
 
+# 性能原始采样可能包含账号页面与个人播放数据，只保留在本机
+/docs/performance/runs/
+
 # 账号凭证 / token / cookie：运行时写在 %AppData%\QQMusicGo，这里防止手误复制进仓库
 /cred.json
 cred*.json

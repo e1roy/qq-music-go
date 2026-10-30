@@ -58,8 +58,8 @@
 | `view_search.go` | 搜索页：热门搜索、直达卡片（歌手/专辑）+ 单曲/歌手/歌单/播客四个页签；单曲分页，歌手/歌单切到页签时才加载、按页追加；播客在新查询时与单曲并行搜索，登录后小宇宙官方的结果排在前（封面带「小宇宙」徽章） | `searchPage`、`searchHeader`、`directCard`、`searchCover`、`foundSongs`/`foundSingers`/`foundPlaylists`/`foundPodcasts`、`foundGrid`/`foundEnd`/`foundPodcastsEnd`、`singerCard`/`singerSide` |
 | `view_singer.go` | 歌手页：头部 + 歌曲/专辑两个页签 + 排序 + 分页加载 | `singerPage`、`singerBar`、`singerSongsEnd`、`albumRow`、`singerAlbumsEnd` |
 | `icons.go` | Lucide 风格 SVG 图标集合与应用 Logo | `icLogo`、`icon`/`filledIcon`、`icHome`…`icWeChat`、`icComment`/`icThumb`、`icSettings`/`icDrive`/`icFolder`、`icFlame`/`icTrending`/`icStar` |
-| `images.go` | 图片异步下载、缩放、缓存、按帧淘汰；同时缓存图片主色 | `images`、`imageEntry`、`imageBudget`（48 MiB）、`newImages`、`frame`、`get`、`peek`、`color`、`shrink` |
-| `palette.go` | 从封面提取主色（median cut + Palette 目标），生成页面顶部渐变色；颜色过渡 | `swatch`、`target`、`paletteTargets`、`dominantColor`、`quantize`、`box`、`hsl`、`tint`、`oklch`、`tintNone`、`tintFade`、`pageTint` |
+| `images.go` | 图片异步下载、按请求尺寸升级、缩放、缓存、按帧淘汰；复用有上限的 scaler；同时缓存图片主色 | `images`、`imageEntry`、`imageSize`、`scalerSize`、`imageBudget`（48 MiB）、`maxImageScalers`、`newImages`、`frame`、`get`、`load`、`peek`、`color`、`shrinkScaled`、`scaler` |
+| `palette.go` | 从封面提取主色（median cut + Palette 目标），生成页面顶部渐变色；颜色过渡 | `swatch`、`target`、`paletteTargets`、`dominantColor`、`quantize`、`countColors`、`box`、`hsl`、`tint`、`oklch`、`tintNone`、`tintFade`、`pageTint` |
 | `motion.go` | 页面/歌词/队列的进入退出动画（页面用 `pageTransition`：上一页直接换掉，新页上移 16px 进场不淡入，也不留拷贝，免得两页重叠；歌曲列表的行另有 `rowsMotion` 逐行入场）、歌词以 genie 效果收放（`genieShader` 按封面位置把整页弯折收缩）、面板从房间边缘滑入滑出、锚点上方的菜单升起落下、歌手页页签行级动画、首页「换一批」卡片刷新动画、歌词换行时字号/字重/颜色与上下滚动（`lyricScroll`：换行前量下一句的位置，列表跳转那一帧按老位置绘制再滑到新位置） | `pageTransition`、`rowsMotion`/`rowsOut`/`rowsSpring`、`lyricsSpring`、`genieShader`/`genieCover`/`genieValues`、`queueOut`/`panelIn`/`panelOut`/`sideSpring`、`menuOut`/`menuMotion`、`popupUp`/`popupRise`/`popupMotion`、`appear`、`presence`、`tabMotion`、`cardOut`/`cardSpring`、`refreshMotion`、`lyricGrow`/`lyricFade`/`lyricWash`/`lyricSlide`、`lyricScroll` |
 | `skeleton.go` | 各种加载骨架屏 | `skeleton`、`bone`、`bar`、`headingSkeleton`、`songCardsSkeleton`、`forYouSkeleton`、`playlistSkeleton`、`singerSkeleton`、`topChartsSkeleton`、`chipsSkeleton`、`songRowsSkeleton`、`listSkeleton`、`lyricsSkeleton`、`commentsSkeleton` |
 | `memory.go` | 延迟把 Go 堆内存归还系统 | `trimmer`、`trimDelay`（3s）、`soon` |
@@ -69,6 +69,7 @@
 | `podcast_test.go` | 小宇宙页、节目页、搜索结果的离线 UI 测试；我听过的节目跨次启动保存；第一次打开时的来源选择与保存 | `TestPodcasts`、`TestSearchPodcastsTab`、`TestPodcastSource` |
 | `xiaoyuzhou_test.go` | 小宇宙官方的离线 UI 测试：未登录、来源切换、推荐/分类/榜单/编辑精选/订阅、不登录 QQ 音乐播放单集、节目页滚到底加载、节目页显示主播与订阅/取消订阅、主播页关注/取关、`xiaoyuzhou.json` 保存与退出 | `TestXiaoyuzhou` |
 | `palette_test.go` | 主色提取与 tint 的单元测试 | `TestDominantColor`、`TestTint` |
+| `images_test.go` | 图片缓存按请求尺寸升级并避免重复下载；scaler 复用与上限 | `TestImagesUpgradeToRequestedSize`、`TestShrinkScaled` |
 | `motion_test.go` | 歌词换行滚动的测试：列表跳到下一句那一帧歌词仍画在原位、之后滑过一句的高度；歌词页量的是当前句的下句（含上方空白行偏移） | `TestLyricScroll`、`TestLyricScrollMeasuresTheComingLine` |
 
 ## 2.1 `internal/playqueue`（播放队列规则）
@@ -135,10 +136,12 @@
 | `resources/resources.go` | 嵌入 `logo.svg`、`icon-256.png`、`tray.png` | `LogoSVG`、`WindowIcon`、`TrayIcon` |
 | `resources/logo.svg`、`tray.svg` | 图标源文件；改完跑 `go run ./cmd/genicon` | — |
 | `.agents/skills/local-refactor/` | 重构 skill：开工前检查、阶段产物、本项目分层边界、单元执行循环与验证命令；方法论在 `references/refactor-playbook.md`（原 `REFACTOR.md`） | `local-refactor` |
+| `.agents/skills/qqmusic-performance-audit/` | 逐页面性能审计 skill：完整页面矩阵、CPU/heap/RSS/goroutine 采样、每轮 run 记录、pprof 判读与优化前后对比；`scripts/perf_record.sh` 负责建 run、抓 snapshot/profile 和生成表格 | `qqmusic-performance-audit`、`page-matrix.md`、`recording-schema.md`、`perf_record.sh` |
 | `mygo.json` | `name` / `identifier` / `version` / `main` / `out`，打包脚本读取版本号 | — |
 | `docs/README.md` | `docs/` 的目录索引与新文档放置规则 | — |
 | `docs/dev/` | 开发文档：本文件、架构（`architecture.md`）、约定（`conventions.md`）、改动指引（`howto.md`）、动效（`motion.md`）、已知坑（`pitfalls.md`）、命令（`commands.md`）、提交与发布（`release.md`）；入口是根目录 `AGENTS.md` | — |
 | `docs/refactor/` | 上一次重构的产物：审计、目标架构、路线图、决策记录、验证报告 | — |
+| `docs/performance/runs/` | 性能审计的本机持久记录（不提交）；每轮一个独立目录，含 `run.json`、`metrics.jsonl`、`summary.md`、逐页 pprof 与 notes | `qqmusic-performance-audit` |
 | `docs/images/` | README 用的截图 | — |
 | `docs/api/qqmusic-feed.md` | 推荐信息流（音乐盲盒 / 碎片时间 / 私荐歌单）的数据来源、分析方法、接口字段与实测结果 | — |
 | `docs/api/xiaoyuzhou.md` | 小宇宙（Xiaoyuzhou FM）三条通道、鉴权与请求头、接口清单、返回字段、免登录网页通道与对接评估 | — |

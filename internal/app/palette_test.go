@@ -54,3 +54,39 @@ func TestTint(t *testing.T) {
 }
 
 func rgb(c color.RGBA) ui.Color { return ui.RGB(c.R, c.G, c.B) }
+
+func TestCountColorsMatchesImageAt(t *testing.T) {
+	rect := image.Rect(0, 0, 7, 5)
+	rgba := image.NewRGBA(rect)
+	nrgba := image.NewNRGBA(rect)
+	ycbcr := image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
+	gray := image.NewGray(rect)
+	for y := range rect.Dy() {
+		for x := range rect.Dx() {
+			c := color.RGBA{uint8(17 * x), uint8(31 * y), uint8(19 * (x + y)), uint8(61 + 13*(x+y))}
+			rgba.SetRGBA(x, y, c)
+			nrgba.SetNRGBA(x, y, color.NRGBA{c.R, c.G, c.B, c.A})
+			gray.SetGray(x, y, color.Gray{uint8(23 * (x + y))})
+			yi, ci := ycbcr.YOffset(x, y), ycbcr.COffset(x, y)
+			ycbcr.Y[yi], ycbcr.Cb[ci], ycbcr.Cr[ci] = c.R, 128, 128
+		}
+	}
+	for name, img := range map[string]image.Image{"RGBA": rgba, "NRGBA": nrgba, "YCbCr": ycbcr, "Gray": gray} {
+		t.Run(name, func(t *testing.T) {
+			want := new([1 << 15]uint16)
+			for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+				for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+					r, g, b, a := img.At(x, y).RGBA()
+					if a >= 0x8000 {
+						want[(r>>11)<<10|(g>>11)<<5|b>>11]++
+					}
+				}
+			}
+			got := new([1 << 15]uint16)
+			countColors(img, img.Bounds(), 1, got)
+			if *got != *want {
+				t.Fatal("direct pixel scan differs from image.At")
+			}
+		})
+	}
+}

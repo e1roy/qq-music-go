@@ -2,6 +2,7 @@ package app
 
 import (
 	"image"
+	"image/color"
 	"math"
 	"slices"
 	"time"
@@ -94,17 +95,12 @@ func quantize(img image.Image, n int) ([]swatch, int) {
 	b := img.Bounds()
 	// Some 100 by 100 pixels are plenty.
 	step := max(1, max(b.Dx(), b.Dy())/100)
-	hist := make([]int, 1<<15)
+	histPtr := takePaletteHistogram()
+	hist := histPtr[:]
+	clear(hist)
+	defer putPaletteHistogram(histPtr)
 	total := 0
-	for y := b.Min.Y; y < b.Max.Y; y += step {
-		for x := b.Min.X; x < b.Max.X; x += step {
-			r, g, bl, a := img.At(x, y).RGBA()
-			if a < 0x8000 {
-				continue
-			}
-			hist[(r>>11)<<10|(g>>11)<<5|bl>>11]++
-		}
-	}
+	countColors(img, b, step, histPtr)
 	var colors []int
 	for c, k := range hist {
 		if k == 0 {
@@ -116,13 +112,13 @@ func quantize(img image.Image, n int) ([]swatch, int) {
 			continue
 		}
 		colors = append(colors, c)
-		total += k
+		total += int(k)
 	}
 	if len(colors) <= n {
 		sw := make([]swatch, len(colors))
 		for i, c := range colors {
 			r, g, bl := expand(c)
-			sw[i] = newSwatch(r, g, bl, hist[c])
+			sw[i] = newSwatch(r, g, bl, int(hist[c]))
 		}
 		return sw, total
 	}
@@ -147,6 +143,82 @@ func quantize(img image.Image, n int) ([]swatch, int) {
 		sw[i] = bx.average(hist)
 	}
 	return sw, total
+}
+
+const paletteHistogramSlots = 6
+
+var paletteHistograms = make(chan *[1 << 15]uint16, paletteHistogramSlots)
+
+func takePaletteHistogram() *[1 << 15]uint16 {
+	select {
+	case hist := <-paletteHistograms:
+		return hist
+	default:
+		return new([1 << 15]uint16)
+	}
+}
+
+func putPaletteHistogram(hist *[1 << 15]uint16) {
+	select {
+	case paletteHistograms <- hist:
+	default:
+	}
+}
+
+// countColors reads common decoded image formats directly. image.At boxing
+// dominates this scan for JPEG and PNG covers.
+func countColors(img image.Image, b image.Rectangle, step int, hist *[1 << 15]uint16) {
+	switch src := img.(type) {
+	case *image.RGBA:
+		for y := b.Min.Y; y < b.Max.Y; y += step {
+			row := src.PixOffset(b.Min.X, y)
+			for x := b.Min.X; x < b.Max.X; x += step {
+				i := row + (x-b.Min.X)*4
+				if src.Pix[i+3] >= 0x80 {
+					hist[int(src.Pix[i]>>3)<<10|int(src.Pix[i+1]>>3)<<5|int(src.Pix[i+2]>>3)]++
+				}
+			}
+		}
+	case *image.NRGBA:
+		for y := b.Min.Y; y < b.Max.Y; y += step {
+			row := src.PixOffset(b.Min.X, y)
+			for x := b.Min.X; x < b.Max.X; x += step {
+				i := row + (x-b.Min.X)*4
+				a := src.Pix[i+3]
+				if a >= 0x80 {
+					r := uint32(src.Pix[i]) * 0x101 * uint32(a) / 0xff
+					g := uint32(src.Pix[i+1]) * 0x101 * uint32(a) / 0xff
+					bl := uint32(src.Pix[i+2]) * 0x101 * uint32(a) / 0xff
+					hist[int(r>>11)<<10|int(g>>11)<<5|int(bl>>11)]++
+				}
+			}
+		}
+	case *image.YCbCr:
+		for y := b.Min.Y; y < b.Max.Y; y += step {
+			for x := b.Min.X; x < b.Max.X; x += step {
+				yi, ci := src.YOffset(x, y), src.COffset(x, y)
+				r, g, bl := color.YCbCrToRGB(src.Y[yi], src.Cb[ci], src.Cr[ci])
+				hist[int(r>>3)<<10|int(g>>3)<<5|int(bl>>3)]++
+			}
+		}
+	case *image.Gray:
+		for y := b.Min.Y; y < b.Max.Y; y += step {
+			row := src.PixOffset(b.Min.X, y)
+			for x := b.Min.X; x < b.Max.X; x += step {
+				c := src.Pix[row+(x-b.Min.X)]
+				hist[int(c>>3)<<10|int(c>>3)<<5|int(c>>3)]++
+			}
+		}
+	default:
+		for y := b.Min.Y; y < b.Max.Y; y += step {
+			for x := b.Min.X; x < b.Max.X; x += step {
+				r, g, bl, a := img.At(x, y).RGBA()
+				if a >= 0x8000 {
+					hist[(r>>11)<<10|(g>>11)<<5|bl>>11]++
+				}
+			}
+		}
+	}
 }
 
 // box is a range of colors of 5 bits a channel, as Palette's Vbox.
@@ -181,7 +253,7 @@ func (bx box) splittable() bool { return len(bx.colors) > 1 }
 
 // split cuts the box across its longest side where half its pixels are on
 // each side.
-func (bx box) split(hist []int) (box, box) {
+func (bx box) split(hist []uint16) (box, box) {
 	side := 0
 	for k := 1; k < 3; k++ {
 		if bx.max[k]-bx.min[k] > bx.max[side]-bx.min[side] {
@@ -191,11 +263,11 @@ func (bx box) split(hist []int) (box, box) {
 	slices.SortFunc(bx.colors, func(x, y int) int { return channels(x)[side] - channels(y)[side] })
 	pop := 0
 	for _, c := range bx.colors {
-		pop += hist[c]
+		pop += int(hist[c])
 	}
 	at, sum := 1, 0
 	for i, c := range bx.colors[:len(bx.colors)-1] {
-		sum += hist[c]
+		sum += int(hist[c])
 		if sum >= pop/2 {
 			at = i + 1
 			break
@@ -208,10 +280,10 @@ func (bx box) split(hist []int) (box, box) {
 }
 
 // average is the box's color, weighted by its pixels.
-func (bx box) average(hist []int) swatch {
+func (bx box) average(hist []uint16) swatch {
 	var r, g, b, pop int
 	for _, c := range bx.colors {
-		k := hist[c]
+		k := int(hist[c])
 		cr, cg, cb := expand(c)
 		r, g, b, pop = r+cr*k, g+cg*k, b+cb*k, pop+k
 	}

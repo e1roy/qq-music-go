@@ -72,5 +72,6 @@ jobs:
               --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$GITHUB_REF_NAME" dist/* \
-              --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+              --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "QQ音乐桌面版 $GITHUB_REF_NAME" --generate-notes
           fi

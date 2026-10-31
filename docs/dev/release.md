@@ -21,7 +21,7 @@
 
 ### 2.1 GitHub Actions 跨平台发布（推荐）
 
-1. **定版本**：改 `mygo.json` 的 `version`。版本号 `x.y.z`，tag 为 `vx.y.z`，两者必须一致。
+1. **定版本**：改 `mygo.json` 的 `version`。版本号 `x.y.z`，tag 为 `vx.y.z`，两者必须一致；「关于」页通过 `mygo.App.Version()` 读取这个版本，不需要再单独改代码。
 2. **验证**：`go test -short ./...`、`go vet ./...`、`go tool mygo vet .`，并按第 1 节清单过一遍。
 3. **提交并推送**：
 

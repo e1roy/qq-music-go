@@ -4,16 +4,20 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
-// appVersion and appRepo are shown in 关于. appVersion is kept in sync by
-// hand with mygo.json's version when releasing (打包build.bat / .sh writes
-// mygo.json; nothing reads it back into the binary).
-const (
-	appVersion = "1.0.12"
-	appRepo    = "https://github.com/e1roy/qq-music-go"
-)
+const appRepo = "https://github.com/e1roy/qq-music-go"
+
+// appVersion is linked from mygo.json by mygo build, so the About page cannot
+// drift from the packaged app's version.
+func appVersion() string {
+	if v := mygo.App.Version(); v != "" {
+		return v
+	}
+	return "开发版"
+}
 
 // settingsSections are the sections of 设置, a.settingsTab indexing them:
 // a menu on the left, as an admin's pages have, and the section chosen on
@@ -134,7 +138,7 @@ func aboutSettings(c *ui.Context) {
 				ui.Image(c, icLogo).Size(24, 24)
 			})
 			ui.Column(c).Gap(2).Children(func() {
-				ui.Text(c, "版本 "+appVersion).FontSize(14).FontWeight(600).FontFeatures("tnum")
+				ui.Text(c, "版本 "+appVersion()).FontSize(14).FontWeight(600).FontFeatures("tnum")
 				ui.Text(c, "界面：MyGo · 音源：QQ 音乐网页端接口").FontSize(12).TextColor(colMuted)
 			})
 		})

@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin/universal
+          - os: ubuntu-latest
+            target: windows/amd64
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Check version
+        run: test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
+
+      - name: Install NSIS
+        if: matrix.target == 'windows/amd64'
+        run: sudo apt-get update && sudo apt-get install -y nsis
+
+      - name: Build
+        run: |
+          go tool mygo build -platform "${{ matrix.target }}"
+          version="$(jq -r .version mygo.json)"
+          mkdir -p dist
+
+          if [ "${{ matrix.target }}" = "darwin/universal" ]; then
+            cp "build/darwin-universal/qqmusic-$version.dmg" \
+              "dist/QQMusic_v${version}_macOS.dmg"
+          else
+            cp "build/windows-amd64/QQMusic.exe" \
+              "dist/QQMusic_v${version}_Portable.exe"
+            cp "build/windows-amd64/qqmusic-setup-$version-amd64.exe" \
+              "dist/QQMusic_v${version}_Setup.exe"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.os }}
+          path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          fi

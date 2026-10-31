@@ -46,6 +46,7 @@
 | 打包脚本（Windows） | `.\打包build.bat [x.y.z]`（传版本号会先写入 `mygo.json`；不传则用现有版本） |
 | 正式打包（exe + NSIS 安装包） | `go tool mygo build` |
 | macOS 打包并安装 | `./打包build.sh [x.y.z] [--universal] [--dmg] [--no-install] [--no-launch]`（打包 `build/darwin-<arch>/QQMusic.app`，替换 `/Applications/QQMusic.app` 并启动；`--universal` 出通用二进制，`--dmg` 另外生成 dmg） |
+| GitHub Actions 跨平台发布 | 改 `mygo.json` 的版本号后提交，推 `main` 和对应的 `v<version>` tag；工作流同时生成 exe、NSIS 安装包与 macOS 通用 dmg，并发布到同一个 GitHub Release |
 | 发布 GitHub Release | `gh release create v<version> build/release/QQMusic_v<version>_Portable.exe build/release/QQMusic_v<version>_Setup.exe --verify-tag --title "QQ音乐桌面版 v<version>" --notes "…"` |
 
 打包产物：

@@ -8,7 +8,7 @@
 |---|---|
 | 直接运行 | `go run ./cmd/qqmusic` |
 | 热重编译运行 | `go tool mygo dev`，或 `.\启动run.bat`（改代码保存后自动重编译重启，产物在 `.mygo/dev/`） |
-| 本地 GUI 构建 | `go build -ldflags "-H=windowsgui" -o build/QQMusic.exe ./cmd/qqmusic` |
+| 本地 GUI 构建 | `go build -ldflags "-H=windowsgui" -o build/QQMusicGo.exe ./cmd/qqmusic` |
 | 内存诊断页 | `$env:QQMUSIC_PPROF="127.0.0.1:6060"; go run ./cmd/qqmusic`，然后打开 `http://127.0.0.1:6060/mem` |
 
 ## 2. 测试与检查
@@ -45,13 +45,13 @@
 |---|---|
 | 打包脚本（Windows） | `.\打包build.bat [x.y.z]`（传版本号会先写入 `mygo.json`；不传则用现有版本） |
 | 正式打包（exe + NSIS 安装包） | `go tool mygo build` |
-| macOS 打包并安装 | `./打包build.sh [x.y.z] [--universal] [--dmg] [--no-install] [--no-launch]`（打包 `build/darwin-<arch>/QQMusic.app`，替换 `/Applications/QQMusic.app` 并启动；`--universal` 出通用二进制，`--dmg` 另外生成 dmg） |
+| macOS 打包并安装 | `./打包build.sh [x.y.z] [--universal] [--dmg] [--no-install] [--no-launch]`（打包 `build/darwin-<arch>/QQMusicGo.app`，替换 `/Applications/QQMusicGo.app` 并启动；`--universal` 出通用二进制，`--dmg` 另外生成 dmg） |
 | GitHub Actions 跨平台发布 | 改 `mygo.json` 的版本号后提交，推 `main` 和对应的 `v<version>` tag；工作流同时生成 exe、NSIS 安装包与 macOS 通用 dmg，并发布到同一个 GitHub Release |
 | 发布 GitHub Release | `gh release create v<version> build/release/QQMusic_v<version>_Portable.exe build/release/QQMusic_v<version>_Setup.exe --verify-tag --title "QQ音乐桌面版 v<version>" --notes "…"` |
 
 打包产物：
 
-- `build/windows-amd64/QQMusic.exe`
+- `build/windows-amd64/QQMusicGo.exe`
 - `build/release/QQMusic_v<version>_Portable.exe`
 - `build/release/QQMusic_v<version>_Setup.exe`
-- `build/darwin-<arch>/QQMusic.app`（macOS，`--dmg` 时同一目录还有 `<slug>-<version>-<arch>.dmg`）
+- `build/darwin-<arch>/QQMusicGo.app`（macOS，`--dmg` 时同一目录还有 `<slug>-<version>-<arch>.dmg`）

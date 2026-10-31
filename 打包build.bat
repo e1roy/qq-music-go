@@ -38,13 +38,13 @@ if "%VERSION%"=="" (
     exit /b 1
 )
 
-echo 正在打包 QQMusic %VERSION% ...
+echo 正在打包 QQMusicGo %VERSION% ...
 set CGO_ENABLED=0
-rem Builds build\windows-amd64\QQMusic.exe, with the icon and the version
+rem Builds build\windows-amd64\QQMusicGo.exe, with the icon and the version
 rem information, and the NSIS installer beside it.
 go tool mygo build
 if errorlevel 1 (
-    echo [错误] 打包失败，如果 QQMusic 正在运行，请关闭后重试
+    echo [错误] 打包失败，如果 QQMusicGo 正在运行，请关闭后重试
     pause
     exit /b 1
 )
@@ -55,7 +55,7 @@ set "PORTABLE=QQMusic_v%VERSION%_Portable.exe"
 set "SETUP=QQMusic_v%VERSION%_Setup.exe"
 if not exist "%REL%" mkdir "%REL%"
 rem The pictures are embedded, so the exe alone is the portable app.
-copy /y "%OUT%\QQMusic.exe" "%REL%\%PORTABLE%" >nul
+copy /y "%OUT%\QQMusicGo.exe" "%REL%\%PORTABLE%" >nul
 if errorlevel 1 goto copyfailed
 copy /y "%OUT%\qqmusic-setup-%VERSION%-amd64.exe" "%REL%\%SETUP%" >nul
 if errorlevel 1 goto copyfailed

@@ -10,7 +10,7 @@ usage() {
     cat <<'EOF'
 用法：./打包build.sh [版本号] [选项]
 
-把 QQMusic 打包成 macOS 的 .app，替换「/Applications/QQMusic.app」并启动。
+把 QQMusicGo 打包成 macOS 的 .app，替换「/Applications/QQMusicGo.app」并启动。
 
   1.0.8               先把版本号写进 mygo.json（也会写进 app 的元数据）
   -u, --universal     打包 Apple 芯片与 Intel 通用的 .app（默认只打本机架构）

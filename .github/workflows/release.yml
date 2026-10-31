@@ -43,7 +43,7 @@ jobs:
             cp "build/darwin-universal/qqmusic-$version.dmg" \
               "dist/QQMusic_v${version}_macOS.dmg"
           else
-            cp "build/windows-amd64/QQMusic.exe" \
+            cp "build/windows-amd64/QQMusicGo.exe" \
               "dist/QQMusic_v${version}_Portable.exe"
             cp "build/windows-amd64/qqmusic-setup-$version-amd64.exe" \
               "dist/QQMusic_v${version}_Setup.exe"
@@ -66,6 +66,12 @@ jobs:
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          MACOS_NOTE: |
+            macOS 包需在终端执行
+
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/QQMusicGo.app
+            ```
         run: |
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* \
@@ -73,5 +79,14 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" dist/* \
               --repo "$GITHUB_REPOSITORY" --verify-tag \
-              --title "QQ音乐桌面版 $GITHUB_REF_NAME" --generate-notes
+              --title "QQ音乐桌面版 $GITHUB_REF_NAME" \
+              --generate-notes --notes "$MACOS_NOTE"
+          fi
+
+          body="$(gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+          if [[ "$body" != *"xattr -dr com.apple.quarantine /Applications/QQMusicGo.app"* ]]; then
+            printf '%s\n\n%s\n' "$MACOS_NOTE" "$body" > release-notes.md
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" --notes-file release-notes.md
           fi

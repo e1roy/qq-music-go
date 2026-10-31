@@ -37,14 +37,14 @@
    - `QQMusic_v<version>_Portable.exe`
    - `QQMusic_v<version>_Setup.exe`
    - `QQMusic_v<version>_macOS.dmg`
-5. **检查 Release**：用 `gh run watch` / `gh run view` 确认工作流成功，再用 `gh release view v<version>` 确认三个附件和标题。自动生成的说明按第 3 节改写。
+5. **检查 Release**：用 `gh run watch` / `gh run view` 确认工作流成功，再用 `gh release view v<version>` 确认三个附件、标题和固定的 macOS 解隔离命令。自动生成的说明按第 3 节改写。
 
 已有 `v<version>` tag（例如只是补发 Release）时不要重建或移动它；修正工作流后重跑失败 job 即可。
 
 ### 2.2 本机 Windows 发布（备用）
 
 1. **定版本**：`.\打包build.bat x.y.z` 会先把版本写进 `mygo.json` 再打包。
-2. **打包**：`.\打包build.bat`（不带参数则沿用 `mygo.json` 的版本）。打包前先关掉正在运行的 QQMusic，否则复制 exe 会失败。产物：
+2. **打包**：`.\打包build.bat`（不带参数则沿用 `mygo.json` 的版本）。打包前先关掉正在运行的 QQMusicGo，否则复制 exe 会失败。产物：
    - `build/release/QQMusic_v<version>_Portable.exe`
    - `build/release/QQMusic_v<version>_Setup.exe`
 3. **提交并推送代码与 tag**，然后发 Release：
@@ -65,6 +65,16 @@
 - 从用户角度描述现象或功能，比如「歌曲卡片的「⋯」菜单点了没反应」，不写原因、实现方式、函数名、测试名和参数。
 - 动效、过渡这类纯视觉的小调整不写；一个版本只有这类改动时写一句「界面细节优化」。
 - 不重复以前版本的内容，也不列附件清单。
+- 每条 Release 都必须包含以下 macOS 解隔离命令，工作流会自动写入；手工发布时也要原样加上：
+
+  ````text
+  macOS 包需在终端执行
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/QQMusicGo.app
+  ```
+  ````
+
 - 末尾固定一句：「Portable 免安装，Setup 为 NSIS 安装包；旧数据可直接沿用。」
 
 示例：
@@ -75,6 +85,12 @@
 
 修复
 - 歌曲卡片的「⋯」菜单点了没反应
+
+macOS 包需在终端执行
+
+```sh
+xattr -dr com.apple.quarantine /Applications/QQMusicGo.app
+```
 
 Portable 免安装，Setup 为 NSIS 安装包；旧数据可直接沿用。
 ```

@@ -16,7 +16,7 @@ if errorlevel 1 (
 rem The development app and the packaged one read the same files of
 rem %AppData%\QQMusicGo: run one at a time, or they overwrite each other's
 rem settings and queue.
-call :close QQMusic.exe
+call :close QQMusicGo.exe
 if errorlevel 1 exit /b 1
 call :close "QQMusic Dev.exe"
 if errorlevel 1 exit /b 1

@@ -10,12 +10,12 @@
 |---|---|---|
 | Windows 10/11 | `QQMusic_v<版本号>_Portable.exe` | 免安装，双击即可运行 |
 | Windows 10/11 | `QQMusic_v<版本号>_Setup.exe` | NSIS 安装包，无需管理员权限，会创建开始菜单快捷方式与卸载程序 |
-| macOS 12+ | `QQMusic_v<版本号>_macOS.dmg` | 通用二进制（Apple 芯片与 Intel 同一份），打开后把 QQMusic 拖进「应用程序」 |
+| macOS 12+ | `QQMusic_v<版本号>_macOS.dmg` | 通用二进制（Apple 芯片与 Intel 同一份），打开后把 QQMusicGo 拖进「应用程序」 |
 
-macOS 包是 ad-hoc 签名、未做 Apple 公证，首次打开会被 Gatekeeper 拦住：在「应用程序」里右键点按 QQMusic →「打开」，或执行
+macOS 包是 ad-hoc 签名、未做 Apple 公证，首次打开会被 Gatekeeper 拦住：在「应用程序」里右键点按 QQMusicGo →「打开」，或执行
 
 ```sh
-xattr -dr com.apple.quarantine /Applications/QQMusic.app
+xattr -dr com.apple.quarantine /Applications/QQMusicGo.app
 ```
 
 之后正常双击即可。
@@ -64,7 +64,7 @@ Windows 打包：
 
 ```sh
 go run ./cmd/genicon -syso                        # 生成 exe 图标资源
-go build -ldflags "-H=windowsgui" -o build/QQMusic.exe ./cmd/qqmusic
+go build -ldflags "-H=windowsgui" -o build/QQMusicGo.exe ./cmd/qqmusic
 go tool mygo build                                # 打包 exe 与 NSIS 安装包
 ```
 
@@ -74,9 +74,9 @@ macOS 打包（无需 Xcode，两个架构可在任意机器上交叉编译；�
 go tool mygo build --platform darwin/universal    # 产物在 build/darwin-universal/
 ```
 
-得到 `QQMusic.app` 与 `qqmusic-<版本号>.dmg`（发布时改名为 `QQMusic_v<版本号>_macOS.dmg`，与 Windows 包的命名一致）。默认 ad-hoc 签名，只在本机可运行；要分发给别人，在 `mygo.json` 的 `macos.signingIdentity` 填 Developer ID，并配置 `macos.notarize` 公证。
+得到 `QQMusicGo.app` 与 `qqmusic-<版本号>.dmg`（发布时改名为 `QQMusic_v<版本号>_macOS.dmg`，与 Windows 包的命名一致）。默认 ad-hoc 签名，只在本机可运行；要分发给别人，在 `mygo.json` 的 `macos.signingIdentity` 填 Developer ID，并配置 `macos.notarize` 公证。
 
-在 macOS 上也可以直接执行 `./打包build.sh`：打包本机架构的 `QQMusic.app`，替换 `/Applications/QQMusic.app`（旧的先关掉）并启动。可选参数：
+在 macOS 上也可以直接执行 `./打包build.sh`：打包本机架构的 `QQMusicGo.app`，替换 `/Applications/QQMusicGo.app`（旧的先关掉）并启动。可选参数：
 
 - `--universal`：Apple 芯片与 Intel 通用的二进制
 - `--dmg`：另外生成分发的 dmg

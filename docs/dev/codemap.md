@@ -23,7 +23,7 @@
 │   └── diag/         # 内存采样页 + net/http/pprof
 ├── docs/             # 文档：dev/ 开发文档、api/ 接口资料、refactor/ 重构记录、images/ 截图（索引见 docs/README.md）
 ├── resources/        # 图标源文件与嵌入资源
-├── mygo.json         # 应用名、identifier、版本号、入口、输出目录
+├── mygo.json         # 应用名、slug、identifier、版本号、入口、输出目录
 ├── 启动run.bat       # 开发模式启动（go tool mygo dev）
 └── 打包build.bat     # 打包 Portable + Setup
 ```
@@ -137,7 +137,7 @@
 | `resources/logo.svg`、`tray.svg` | 图标源文件；改完跑 `go run ./cmd/genicon` | — |
 | `.agents/skills/local-refactor/` | 重构 skill：开工前检查、阶段产物、本项目分层边界、单元执行循环与验证命令；方法论在 `references/refactor-playbook.md`（原 `REFACTOR.md`） | `local-refactor` |
 | `.agents/skills/qqmusic-performance-audit/` | 逐页面性能审计 skill：完整页面矩阵、CPU/heap/RSS/goroutine 采样、每轮 run 记录、pprof 判读与优化前后对比；`scripts/perf_record.sh` 负责建 run、抓 snapshot/profile 和生成表格 | `qqmusic-performance-audit`、`page-matrix.md`、`recording-schema.md`、`perf_record.sh` |
-| `mygo.json` | `name` / `identifier` / `version` / `main` / `out`，打包脚本读取版本号 | — |
+| `mygo.json` | `name` / `slug` / `identifier` / `version` / `main` / `out`；应用名决定 `.app` 名称，slug 保持发布文件名稳定 | — |
 | `docs/README.md` | `docs/` 的目录索引与新文档放置规则 | — |
 | `docs/dev/` | 开发文档：本文件、架构（`architecture.md`）、约定（`conventions.md`）、改动指引（`howto.md`）、动效（`motion.md`）、已知坑（`pitfalls.md`）、命令（`commands.md`）、提交与发布（`release.md`）；入口是根目录 `AGENTS.md` | — |
 | `docs/refactor/` | 上一次重构的产物：审计、目标架构、路线图、决策记录、验证报告 | — |
